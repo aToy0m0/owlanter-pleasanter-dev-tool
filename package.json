@@ -9,13 +9,143 @@
   "categories": [
     "Other"
   ],
-  "activationEvents": [],
+  "keywords": [
+    "pleasanter",
+    "script",
+    "sync",
+    "deployment"
+  ],
   "main": "./out/extension.js",
   "contributes": {
     "commands": [
       {
-        "command": "owleanter.helloWorld",
-        "title": "Hello World"
+        "command": "pleasanter.siteList",
+        "title": "Pleasanter: サイト一覧表示",
+        "icon": "$(list-unordered)"
+      },
+      {
+        "command": "pleasanter.siteSelect",
+        "title": "Pleasanter: サイト選択",
+        "icon": "$(selection)"
+      },
+      {
+        "command": "pleasanter.siteCurrent",
+        "title": "Pleasanter: 現在のサイト情報表示",
+        "icon": "$(info)"
+      },
+      {
+        "command": "pleasanter.siteAdd",
+        "title": "Pleasanter: サイト追加",
+        "icon": "$(add)"
+      },
+      {
+        "command": "pleasanter.pull",
+        "title": "Pleasanter: スクリプト取得 (Pull)",
+        "icon": "$(cloud-download)"
+      },
+      {
+        "command": "pleasanter.push",
+        "title": "Pleasanter: スクリプト適用 (Push)",
+        "icon": "$(cloud-upload)"
+      },
+      {
+        "command": "pleasanter.watch",
+        "title": "Pleasanter: 自動同期 (Watch)",
+        "icon": "$(eye)"
+      },
+      {
+        "command": "pleasanter.diff",
+        "title": "Pleasanter: 差分表示",
+        "icon": "$(diff)"
+      },
+      {
+        "command": "pleasanter.upload",
+        "title": "Pleasanter: スクリプトアップロード",
+        "icon": "$(upload)"
+      },
+      {
+        "command": "pleasanter.uploadServer",
+        "title": "Pleasanter: サーバースクリプトアップロード",
+        "icon": "$(server)"
+      },
+      {
+        "command": "pleasanter.uploadClient",
+        "title": "Pleasanter: クライアントスクリプトアップロード",
+        "icon": "$(browser)"
+      },
+      {
+        "command": "pleasanter.uploadFile",
+        "title": "Pleasanter: ファイルアップロード",
+        "icon": "$(file-code)"
+      },
+      {
+        "command": "pleasanter.scriptShow",
+        "title": "Pleasanter: アクティブスクリプト表示"
+      },
+      {
+        "command": "pleasanter.scriptSet",
+        "title": "Pleasanter: アクティブスクリプト設定"
+      },
+      {
+        "command": "pleasanter.scriptClear",
+        "title": "Pleasanter: アクティブスクリプト解除"
+      },
+      {
+        "command": "pleasanter.configShow",
+        "title": "Pleasanter: 現在の接続設定表示"
+      },
+      {
+        "command": "pleasanter.configSet",
+        "title": "Pleasanter: 接続設定更新"
+      }
+    ],
+    "configuration": {
+      "title": "Pleasanter Script Tool",
+      "properties": {
+        "pleasanter.workspaceRoot": {
+          "type": "string",
+          "default": "",
+          "description": "Pleasanterワークスペースのルートパス（空の場合はワークスペースルートを使用）"
+        },
+        "pleasanter.autoSave": {
+          "type": "boolean",
+          "default": true,
+          "description": "ファイル保存時に自動的にPleasanterへアップロード"
+        },
+        "pleasanter.confirmationRequired": {
+          "type": "object",
+          "default": {
+            "production": true,
+            "staging": false,
+            "development": false
+          },
+          "description": "環境別の確認プロンプト設定"
+        },
+        "pleasanter.logLevel": {
+          "type": "string",
+          "enum": [
+            "debug",
+            "info",
+            "warn",
+            "error"
+          ],
+          "default": "info",
+          "description": "ログレベル"
+        }
+      }
+    },
+    "views": {
+      "explorer": [
+        {
+          "id": "pleasanterSites",
+          "name": "Pleasanter Sites"
+        }
+      ]
+    },
+    "viewsWelcome": [
+      {
+        "view": "pleasanterSites",
+        "contents": "サイトが登録されていません。\n[サイトを追加](command:pleasanter.siteAdd)"
       }
     ]
   },
@@ -28,14 +158,18 @@
     "test": "vscode-test"
   },
   "devDependencies": {
-    "@types/vscode": "^1.105.0",
     "@types/mocha": "^10.0.10",
     "@types/node": "22.x",
+    "@types/vscode": "^1.105.0",
     "@typescript-eslint/eslint-plugin": "^8.45.0",
     "@typescript-eslint/parser": "^8.45.0",
-    "eslint": "^9.36.0",
-    "typescript": "^5.9.3",
     "@vscode/test-cli": "^0.0.11",
-    "@vscode/test-electron": "^2.5.2"
+    "@vscode/test-electron": "^2.5.2",
+    "eslint": "^9.36.0",
+    "typescript": "^5.9.3"
+  },
+  "dependencies": {
+    "axios": "^1.12.2",
+    "chokidar": "^4.0.3"
   }
 }
