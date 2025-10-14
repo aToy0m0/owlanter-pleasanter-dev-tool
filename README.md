@@ -1,71 +1,37 @@
-# owleanter README
+# Owlanter VS Code Extension
 
-This is the README for your extension "owleanter". After writing up a brief description, we recommend including the following sections.
+Owlanter は、Pleasanter サイト向けスクリプトを VS Code から安全かつ効率的に同期するための拡張機能です。TypeScript 製の UI と、既存の Python ツール群（01_api 配下）を組み合わせており、開発・検証済みのフローをそのまま活用できます。
 
-## Features
+## 主な機能
+- **サイト管理**: サイト一覧表示・選択・状態確認が可能
+- **同期**: Pull / Push / Diff / Watch に対応し、アクティブスクリプト設定も GUI から操作
+- **アップロード**: サーバー／クライアントスクリプトを ID やファイル指定でアップロード
+- **設定同期**: VS Code のユーザー設定と `_config/config.json` をワンクリック同期
 
-Describe specific features of your extension including screenshots of your extension in action. Image paths are relative to this README file.
+## インストール
+1. `npm install`
+2. `npm run compile`
+3. VS Code の拡張機能デバッグ (F5) もしくは `npx vsce package` で生成した VSIX をインストール
 
-For example if there is an image subfolder under your extension project workspace:
+## 初期設定
+1. 拡張機能コマンド `Owlanter: 設定同期` を実行し、VS Code 設定のドメイン / API キーを `_config/config.json` に反映
+2. Python ツールを利用している場合は、`01_api/03_deployment/03_controller.py` から従来どおり `pull` を実行
+3. `Owlanter: サイト追加` で VS Code 側のサイト情報を登録
 
-\!\[feature X\]\(images/feature-x.png\)
+## コマンド一覧（抜粋）
+| 機能 | コマンド | 説明 |
+| --- | --- | --- |
+| サイト管理 | `Owlanter: サイト一覧表示` / `Owlanter: サイト選択` | サイトの表示・切替 |
+| 同期 | `Owlanter: スクリプト取得 (Pull)` / `Owlanter: スクリプト適用 (Push)` / `Owlanter: 自動同期 (Watch)` / `Owlanter: 差分表示` | 各種同期処理 |
+| アップロード | `Owlanter: スクリプトアップロード` ほか | ID / ファイル指定でアップロード |
+| 設定 | `Owlanter: 設定同期` / `Owlanter: 接続設定更新` | VS Code 設定と `_config/config.json` の同期 |
 
-> Tip: Many popular extensions utilize animations. This is an excellent way to show off your extension! We recommend short, focused animations that are easy to follow.
+## アイコン
+`resources/icon.png` はルートにある `owl.png` からコピーされています。必要に応じて差し替えてください。
 
-## Requirements
+## 既存 Python ツールとの連携
+- `01_api/03_deployment/03_controller.py`、`01_upload-scripts.py` などは既存フローのまま動作します
+- VS Code 拡張で実行するコマンドと同等の動きになるよう API リクエスト仕様を統一しています
 
-If you have any requirements or dependencies, add a section describing those and how to install and configure them.
-
-## Extension Settings
-
-Include if your extension adds any VS Code settings through the `contributes.configuration` extension point.
-
-For example:
-
-This extension contributes the following settings:
-
-* `myExtension.enable`: Enable/disable this extension.
-* `myExtension.thing`: Set to `blah` to do something.
-
-## Known Issues
-
-Calling out known issues can help limit users opening duplicate issues against your extension.
-
-## Release Notes
-
-Users appreciate release notes as you update your extension.
-
-### 1.0.0
-
-Initial release of ...
-
-### 1.0.1
-
-Fixed issue #.
-
-### 1.1.0
-
-Added features X, Y, and Z.
-
----
-
-## Following extension guidelines
-
-Ensure that you've read through the extensions guidelines and follow the best practices for creating your extension.
-
-* [Extension Guidelines](https://code.visualstudio.com/api/references/extension-guidelines)
-
-## Working with Markdown
-
-You can author your README using Visual Studio Code. Here are some useful editor keyboard shortcuts:
-
-* Split the editor (`Cmd+\` on macOS or `Ctrl+\` on Windows and Linux).
-* Toggle preview (`Shift+Cmd+V` on macOS or `Shift+Ctrl+V` on Windows and Linux).
-* Press `Ctrl+Space` (Windows, Linux, macOS) to see a list of Markdown snippets.
-
-## For more information
-
-* [Visual Studio Code's Markdown Support](http://code.visualstudio.com/docs/languages/markdown)
-* [Markdown Syntax Reference](https://help.github.com/articles/markdown-basics/)
-
-**Enjoy!**
+## ライセンス
+プロジェクトのライセンスに従います。

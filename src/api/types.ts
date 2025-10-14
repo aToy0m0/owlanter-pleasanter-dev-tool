@@ -1,20 +1,11 @@
 /**
- * Pleasanter API Type Definitions
+ * Owlanter API Type Definitions
  */
 
 export interface ApiResponse {
   Id: number;
   StatusCode: number;
   Message: string;
-}
-
-export interface SiteSettings {
-  Id: number;
-  Title: string;
-  Body: string;
-  ReferenceType: string;
-  Scripts?: Script[];
-  ServerScripts?: ServerScript[];
 }
 
 export interface Script {
@@ -50,6 +41,8 @@ export interface ServerScript {
   ServerScriptBeforeOpeningPage?: boolean;
   ServerScriptBeforeOpeningRow?: boolean;
   ServerScriptShared?: boolean;
+  Functionalize?: boolean;
+  TryCatch?: boolean;
   Delete?: number;
 }
 
@@ -61,6 +54,7 @@ export interface SiteInfo {
   'last-sync': string;
   active: boolean;
   color: string;
+  'folder-name'?: string;
 }
 
 export interface SitesConfig {
@@ -70,8 +64,10 @@ export interface SitesConfig {
 }
 
 export interface Config {
-  'pleasanter-domain': string;
-  'pleasanter-api': string;
+  'owlanter-domain'?: string;
+  'owlanter-api'?: string;
+  'pleasanter-domain'?: string;
+  'pleasanter-api'?: string;
   settings: {
     'auto-backup': boolean;
     'backup-count': number;
@@ -91,4 +87,58 @@ export interface CommandOptions {
   dryRun?: boolean;
   force?: boolean;
   verbose?: boolean;
+}
+
+export interface ApiResponseEnvelope<T> {
+  StatusCode: number;
+  Response?: {
+    Data?: T;
+  };
+  Messages?: unknown;
+}
+
+export interface SiteData {
+  SiteId: number;
+  Title: string;
+  Body?: string;
+  SiteName?: string;
+  SiteGroupName?: string;
+  ReferenceType?: string;
+  SiteSettings?: {
+    Version?: number;
+    ReferenceType?: string;
+    Description?: string;
+    Scripts?: Script[];
+    ServerScripts?: Array<ServerScript & {
+      BeforeUpdate?: boolean;
+      AfterUpdate?: boolean;
+      BeforeCreate?: boolean;
+      AfterCreate?: boolean;
+    }>;
+    [key: string]: unknown;
+  };
+  [key: string]: unknown;
+}
+
+export interface SiteInfoFile {
+  'site-id': number;
+  'site-name': string;
+  title: string;
+  'reference-type': string;
+  'tenant-id': number;
+  environment: 'production' | 'staging' | 'development';
+  'created-at': string;
+  'last-pulled': string;
+  'last-pushed': string;
+  version: number;
+  'scripts-count': {
+    'server-scripts': number;
+    'client-scripts': number;
+  };
+  'active-scripts': {
+    server: number[];
+    client: number[];
+  };
+  'folder-name'?: string;
+  [key: string]: unknown;
 }

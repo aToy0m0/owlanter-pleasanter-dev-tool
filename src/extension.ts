@@ -1,26 +1,75 @@
-// The module 'vscode' contains the VS Code extensibility API
-// Import the module and reference it with the alias vscode in your code below
 import * as vscode from 'vscode';
+import { SiteManager } from './core/site-manager';
+import { registerCommands } from './ui/commands';
+import { OwlanterSitesProvider } from './ui/tree-provider';
+import { ScriptSynchronizer } from './core/script-sync';
+import { FileWatcher } from './core/file-watcher';
 
-// This method is called when your extension is activated
-// Your extension is activated the very first time the command is executed
-export function activate(context: vscode.ExtensionContext) {
+/**
+ * Extension activation
+ */
+export async function activate(context: vscode.ExtensionContext) {
+  console.log('Owlanter extension is now active!');
 
-	// Use the console to output diagnostic information (console.log) and errors (console.error)
-	// This line of code will only be executed once when your extension is activated
-	console.log('Congratulations, your extension "owleanter" is now active!');
+  // Get workspace root
+  const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+  if (!workspaceRoot) {
+    vscode.window.showWarningMessage(
+      'Owlanter requires a workspace to be opened. Please open a folder.'
+    );
+    return;
+  }
 
-	// The command has been defined in the package.json file
-	// Now provide the implementation of the command with registerCommand
-	// The commandId parameter must match the command field in package.json
-	const disposable = vscode.commands.registerCommand('owleanter.helloWorld', () => {
-		// The code you place here will be executed every time your command is executed
-		// Display a message box to the user
-		vscode.window.showInformationMessage('Hello World from Owleanter!');
-	});
+  try {
+    // Initialize Site Manager
+    const siteManager = new SiteManager(workspaceRoot);
 
-	context.subscriptions.push(disposable);
+    // Register tree data provider for Owlanter Sites view
+    const sitesProvider = new OwlanterSitesProvider(context, siteManager);
+    vscode.window.registerTreeDataProvider('owlanterSites', sitesProvider);
+
+    // Register refresh command for tree view
+    context.subscriptions.push(
+      vscode.commands.registerCommand('owlanter.sitesRefresh', () => {
+        sitesProvider.refresh();
+      })
+    );
+
+    const scriptSynchronizer = new ScriptSynchronizer(siteManager);
+    const fileWatcher = new FileWatcher(scriptSynchronizer);
+
+    // Ensure watcher stops on deactivate
+    context.subscriptions.push({ dispose: () => fileWatcher.stop() });
+
+    // Register all commands
+    await registerCommands(context, siteManager, scriptSynchronizer, fileWatcher);
+
+    console.log('Owlanter: All commands registered successfully');
+
+    // Show welcome message on first activation
+    const hasShownWelcome = context.globalState.get('owleanter.hasShownWelcome');
+    if (!hasShownWelcome) {
+      const answer = await vscode.window.showInformationMessage(
+        'Welcome to Owlanter! Configure your Owlanter connection first.',
+        'Configure Now',
+        'Later'
+      );
+
+      if (answer === 'Configure Now') {
+        await vscode.commands.executeCommand('owlanter.configSet');
+      }
+
+      context.globalState.update('owleanter.hasShownWelcome', true);
+    }
+  } catch (error: any) {
+    vscode.window.showErrorMessage(`Owlanter activation failed: ${error.message}`);
+    console.error('Owlanter activation error:', error);
+  }
 }
 
-// This method is called when your extension is deactivated
-export function deactivate() {}
+/**
+ * Extension deactivation
+ */
+export function deactivate() {
+  console.log('Owlanter extension is now deactivated');
+}

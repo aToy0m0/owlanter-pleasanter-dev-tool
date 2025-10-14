@@ -1,23 +1,29 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
 import * as fs from 'fs/promises';
-import { SitesConfig, SiteInfo, Config } from '../api/types';
+import { SitesConfig, SiteInfo, Config, SiteInfoFile } from '../api/types';
+
+const CONFIG_COMMENT = '// vscode設定に記入した場合は同期ボタンでconfig.jsonに反映してください';
 
 /**
  * Site Manager
- * Manages multiple Pleasanter sites and configuration
+ * Manages multiple Owlanter sites and configuration
  */
 export class SiteManager {
   private workspaceRoot: string;
   private configDir: string;
   private sitesFile: string;
   private configFile: string;
+  private sitesRootDir: string;
+  private siteFolderCache: Map<number, string>;
 
   constructor(workspaceRoot: string) {
     this.workspaceRoot = workspaceRoot;
-    this.configDir = path.join(workspaceRoot, '01_api', '00_config');
-    this.sitesFile = path.join(this.configDir, 'sites.json');
+    this.configDir = path.join(workspaceRoot, '_config');
+    this.sitesRootDir = path.join(this.configDir, 'SITES');
+    this.sitesFile = path.join(this.configDir, 'site.json');
     this.configFile = path.join(this.configDir, 'config.json');
+    this.siteFolderCache = new Map<number, string>();
   }
 
   /**
@@ -26,7 +32,16 @@ export class SiteManager {
   async getSites(): Promise<SitesConfig> {
     try {
       const content = await fs.readFile(this.sitesFile, 'utf8');
-      return JSON.parse(content);
+      const config: SitesConfig = JSON.parse(content);
+      const mutated = this.ensureSiteFolderMetadata(config);
+
+      if (mutated) {
+        await this.writeSitesFile(config);
+      } else {
+        this.updateSiteFolderCache(config);
+      }
+
+      return config;
     } catch (error: any) {
       if (error.code === 'ENOENT') {
         // File doesn't exist, create initial config
@@ -35,10 +50,10 @@ export class SiteManager {
           'current-site': 0,
           'default-site': 0,
         };
-        await this.saveSites(initialConfig);
+        await this.writeSitesFile(initialConfig);
         return initialConfig;
       }
-      throw new Error(`Failed to load sites.json: ${error.message}`);
+      throw new Error(`Failed to load site.json: ${error.message}`);
     }
   }
 
@@ -47,10 +62,10 @@ export class SiteManager {
    */
   async saveSites(config: SitesConfig): Promise<void> {
     try {
-      await fs.mkdir(this.configDir, { recursive: true });
-      await fs.writeFile(this.sitesFile, JSON.stringify(config, null, 2), 'utf8');
+      this.ensureSiteFolderMetadata(config);
+      await this.writeSitesFile(config);
     } catch (error: any) {
-      throw new Error(`Failed to save sites.json: ${error.message}`);
+      throw new Error(`Failed to save site.json: ${error.message}`);
     }
   }
 
@@ -115,6 +130,7 @@ export class SiteManager {
     const newSite: SiteInfo = {
       'site-id': siteId,
       'site-name': siteName,
+      'folder-name': this.createSiteFolderName(siteId, siteName),
       description,
       environment,
       'last-sync': new Date().toISOString(),
@@ -134,37 +150,13 @@ export class SiteManager {
     await this.saveSites(config);
 
     // Create site directory structure
-    const siteDir = path.join(this.workspaceRoot, '01_api', 'SITE', siteId.toString());
+    const siteDir = this.getSiteDir(siteId);
     await fs.mkdir(path.join(siteDir, 'server-script'), { recursive: true });
     await fs.mkdir(path.join(siteDir, 'client-script'), { recursive: true });
 
     // Create initial site-info.json
-    const siteInfo = {
-      'site-id': siteId,
-      'site-name': siteName,
-      title: siteName,
-      'reference-type': '',
-      'tenant-id': 0,
-      environment,
-      'created-at': new Date().toISOString(),
-      'last-pulled': '',
-      'last-pushed': '',
-      version: 1,
-      'scripts-count': {
-        'server-scripts': 0,
-        'client-scripts': 0,
-      },
-      'active-scripts': {
-        server: [],
-        client: [],
-      },
-    };
-
-    await fs.writeFile(
-      path.join(siteDir, 'site-info.json'),
-      JSON.stringify(siteInfo, null, 2),
-      'utf8'
-    );
+    const siteInfo = this.createDefaultSiteInfo(newSite);
+    await this.saveSiteInfo(siteId, siteInfo);
 
     vscode.window.showInformationMessage(`Site added: ${siteName} (ID: ${siteId})`);
   }
@@ -181,6 +173,7 @@ export class SiteManager {
     }
 
     const site = config.sites[siteIndex];
+    const siteFolderName = site['folder-name'] ?? this.createSiteFolderName(site['site-id'], site['site-name']);
 
     // Confirm deletion
     const answer = await vscode.window.showWarningMessage(
@@ -194,20 +187,38 @@ export class SiteManager {
       return;
     }
 
+    const removedWasCurrent = config['current-site'] === siteId;
+    const removedWasDefault = config['default-site'] === siteId;
+
     config.sites.splice(siteIndex, 1);
 
-    // If removed site was current, reset current-site
-    if (config['current-site'] === siteId) {
-      if (config.sites.length > 0) {
+    if (config.sites.length === 0) {
+      config['current-site'] = 0;
+      config['default-site'] = 0;
+    } else {
+      if (removedWasCurrent) {
         config['current-site'] = config.sites[0]['site-id'];
-        config.sites[0].active = true;
-      } else {
-        config['current-site'] = 0;
-        config['default-site'] = 0;
       }
+
+      if (removedWasDefault) {
+        config['default-site'] = config.sites[0]['site-id'];
+      }
+
+      config.sites.forEach(s => {
+        s.active = s['site-id'] === config['current-site'];
+      });
     }
 
     await this.saveSites(config);
+
+    // Remove site directory on disk
+    const siteDir = path.join(this.sitesRootDir, siteFolderName);
+    try {
+      await fs.rm(siteDir, { recursive: true, force: true });
+    } catch (error) {
+      console.warn(`Failed to remove site directory ${siteDir}:`, error);
+    }
+
     vscode.window.showInformationMessage(`Site removed: ${site['site-name']}`);
   }
 
@@ -226,15 +237,40 @@ export class SiteManager {
 
   /**
    * Get global configuration
-   */
+  */
   async getConfig(): Promise<Config> {
     try {
       const content = await fs.readFile(this.configFile, 'utf8');
-      return JSON.parse(content);
+      const sanitized = content
+        .split(/\r?\n/)
+        .filter(line => !line.trim().startsWith('//'))
+        .join('\n')
+        .trim();
+
+      if (!sanitized) {
+        throw new Error('config.json is empty');
+      }
+
+      const parsed = JSON.parse(sanitized) as Config;
+      const mutableParsed = parsed as unknown as Record<string, unknown>;
+      const domain = (parsed['owlanter-domain'] ?? parsed['pleasanter-domain'] ?? '').trim();
+      const apiKey = (parsed['owlanter-api'] ?? parsed['pleasanter-api'] ?? '').trim();
+
+      if (domain) {
+        mutableParsed['owlanter-domain'] = domain;
+      }
+      if (apiKey) {
+        mutableParsed['owlanter-api'] = apiKey;
+      }
+
+      delete mutableParsed['pleasanter-domain'];
+      delete mutableParsed['pleasanter-api'];
+
+      return parsed;
     } catch (error: any) {
       if (error.code === 'ENOENT') {
         throw new Error(
-          'config.json not found. Please create it in 01_api/00_config/ directory.'
+          'config.json not found. Please create it in _config/ directory.'
         );
       }
       throw new Error(`Failed to load config.json: ${error.message}`);
@@ -246,11 +282,204 @@ export class SiteManager {
    */
   async saveConfig(config: Config): Promise<void> {
     try {
+      const domain = (config['owlanter-domain'] ?? config['pleasanter-domain'] ?? '').trim();
+      const apiKey = (config['owlanter-api'] ?? config['pleasanter-api'] ?? '').trim();
+
+      const mutableConfig = config as unknown as Record<string, unknown>;
+      mutableConfig['owlanter-domain'] = domain;
+      mutableConfig['owlanter-api'] = apiKey;
+      delete mutableConfig['pleasanter-domain'];
+      delete mutableConfig['pleasanter-api'];
+
       await fs.mkdir(this.configDir, { recursive: true });
-      await fs.writeFile(this.configFile, JSON.stringify(config, null, 2), 'utf8');
+      const serialized = JSON.stringify(config, null, 2);
+      const output = `${CONFIG_COMMENT}\n${serialized}\n`;
+      await fs.writeFile(this.configFile, output, 'utf8');
     } catch (error: any) {
       throw new Error(`Failed to save config.json: ${error.message}`);
     }
+  }
+
+  /**
+   * Check whether configuration file exists
+   */
+  async configExists(): Promise<boolean> {
+    try {
+      await fs.stat(this.configFile);
+      return true;
+    } catch (error: any) {
+      if (error.code === 'ENOENT') {
+        return false;
+      }
+      throw new Error(`Failed to access config.json: ${error.message}`);
+    }
+  }
+
+  /**
+   * Initialize configuration with default values
+   */
+  async initializeConfig(force = false): Promise<Config> {
+    const exists = await this.configExists();
+    if (exists && !force) {
+      return this.getConfig();
+    }
+
+    const defaultConfig: Config = {
+      'owlanter-domain': '',
+      'owlanter-api': '',
+      settings: {
+        'auto-backup': true,
+        'backup-count': 5,
+        'confirmation-required': {
+          production: true,
+          staging: false,
+          development: false,
+        },
+        'default-delay': 1.5,
+        'max-retries': 3,
+      },
+    };
+
+    await this.saveConfig(defaultConfig);
+    return defaultConfig;
+  }
+
+  getSiteInfoPath(siteId: number): string {
+    return path.join(this.getSiteDir(siteId), 'site-info.json');
+  }
+
+  async readSiteInfo(siteId: number): Promise<SiteInfoFile> {
+    const site = await this.getSiteById(siteId);
+    if (!site) {
+      throw new Error(`Site ID ${siteId} not found`);
+    }
+
+    const infoPath = this.getSiteInfoPath(siteId);
+
+    try {
+      const content = await fs.readFile(infoPath, 'utf8');
+      const parsed = JSON.parse(content) as SiteInfoFile;
+      return this.normalizeSiteInfo(site, parsed);
+    } catch (error: any) {
+      if (error.code === 'ENOENT') {
+        const defaultInfo = this.createDefaultSiteInfo(site);
+        await this.saveSiteInfo(siteId, defaultInfo);
+        return defaultInfo;
+      }
+      throw new Error(`Failed to load site-info.json: ${error.message}`);
+    }
+  }
+
+  async saveSiteInfo(siteId: number, info: SiteInfoFile): Promise<void> {
+    const site = await this.getSiteById(siteId);
+    if (!site) {
+      throw new Error(`Site ID ${siteId} not found`);
+    }
+
+    const normalized = this.normalizeSiteInfo(site, info);
+    await fs.mkdir(this.getSiteDir(siteId), { recursive: true });
+    await fs.writeFile(this.getSiteInfoPath(siteId), JSON.stringify(normalized, null, 2), 'utf8');
+  }
+
+  async updateSiteInfo(siteId: number, updater: (info: SiteInfoFile) => void): Promise<SiteInfoFile> {
+    const info = await this.readSiteInfo(siteId);
+    updater(info);
+    await this.saveSiteInfo(siteId, info);
+    return info;
+  }
+
+  private ensureSiteFolderMetadata(config: SitesConfig): boolean {
+    let mutated = false;
+
+    for (const site of config.sites) {
+      if (!site['folder-name'] || typeof site['folder-name'] !== 'string') {
+        site['folder-name'] = this.createSiteFolderName(site['site-id'], site['site-name']);
+        mutated = true;
+      }
+    }
+
+    return mutated;
+  }
+
+  private updateSiteFolderCache(config: SitesConfig): void {
+    this.siteFolderCache.clear();
+    for (const site of config.sites) {
+      const folderName = site['folder-name'] ?? this.createSiteFolderName(site['site-id'], site['site-name']);
+      this.siteFolderCache.set(site['site-id'], folderName);
+    }
+  }
+
+  private async writeSitesFile(config: SitesConfig): Promise<void> {
+    await fs.mkdir(this.configDir, { recursive: true });
+    await fs.mkdir(this.sitesRootDir, { recursive: true });
+    await fs.writeFile(this.sitesFile, JSON.stringify(config, null, 2), 'utf8');
+    this.updateSiteFolderCache(config);
+  }
+
+  private createSiteFolderName(siteId: number, siteName: string): string {
+    const trimmedName = (siteName || '').trim();
+    const sanitized = trimmedName
+      .normalize('NFKD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .replace(/[^a-zA-Z0-9_-]+/g, '_')
+      .replace(/^_+|_+$/g, '')
+      .slice(0, 40);
+    const safeName = sanitized.length > 0 ? sanitized : `site_${siteId}`;
+    return `${siteId}_${safeName}`;
+  }
+
+  private createDefaultSiteInfo(site: SiteInfo): SiteInfoFile {
+    const now = new Date().toISOString();
+    const folderName = site['folder-name'] ?? this.createSiteFolderName(site['site-id'], site['site-name']);
+    return {
+      'site-id': site['site-id'],
+      'site-name': site['site-name'],
+      title: site['site-name'],
+      'reference-type': '',
+      'tenant-id': 0,
+      environment: site.environment,
+      'created-at': now,
+      'last-pulled': '',
+      'last-pushed': '',
+      version: 1,
+      'scripts-count': {
+        'server-scripts': 0,
+        'client-scripts': 0,
+      },
+      'active-scripts': {
+        server: [],
+        client: [],
+      },
+      'folder-name': folderName,
+    };
+  }
+
+  private normalizeSiteInfo(site: SiteInfo, info: SiteInfoFile): SiteInfoFile {
+    info['site-id'] = site['site-id'];
+    info['site-name'] = site['site-name'];
+    info.environment = site.environment;
+    info['folder-name'] = site['folder-name'] ?? this.createSiteFolderName(site['site-id'], site['site-name']);
+    info.title = info.title || site['site-name'];
+    info['reference-type'] = info['reference-type'] ?? '';
+    info['tenant-id'] = info['tenant-id'] ?? 0;
+    info.version = info.version ?? 1;
+    info['created-at'] = info['created-at'] ?? new Date().toISOString();
+    info['last-pulled'] = info['last-pulled'] ?? '';
+    info['last-pushed'] = info['last-pushed'] ?? '';
+    info['scripts-count'] = info['scripts-count'] ?? { 'server-scripts': 0, 'client-scripts': 0 };
+
+    if (!info['active-scripts']) {
+      info['active-scripts'] = { server: [], client: [] };
+    } else {
+      info['active-scripts'].server = Array.isArray(info['active-scripts'].server)
+        ? info['active-scripts'].server
+        : [];
+      info['active-scripts'].client = Array.isArray(info['active-scripts'].client)
+        ? info['active-scripts'].client
+        : [];
+    }
+
+    return info;
   }
 
   /**
@@ -271,7 +500,8 @@ export class SiteManager {
    * Get site directory path
    */
   getSiteDir(siteId: number): string {
-    return path.join(this.workspaceRoot, '01_api', 'SITE', siteId.toString());
+    const folderName = this.siteFolderCache.get(siteId) ?? siteId.toString();
+    return path.join(this.sitesRootDir, folderName);
   }
 
   /**

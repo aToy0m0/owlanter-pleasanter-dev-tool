@@ -1,11 +1,11 @@
 import axios, { AxiosInstance, AxiosResponse } from 'axios';
-import { SiteSettings, Script, ServerScript, ApiResponse } from './types';
+import { ApiResponseEnvelope, SiteData, Script, ServerScript, ApiResponse } from './types';
 
 /**
- * Pleasanter API Client
- * Handles all communication with Pleasanter server
+ * Owlanter API Client
+ * Handles all communication with Owlanter server
  */
-export class PleasanterApiClient {
+export class OwlanterApiClient {
   private client: AxiosInstance;
   private apiKey: string;
   private baseUrl: string;
@@ -23,20 +23,23 @@ export class PleasanterApiClient {
   }
 
   /**
-   * Get site settings from Pleasanter
+   * Get site settings from Owlanter
    */
-  async getSiteSettings(siteId: number): Promise<SiteSettings> {
+  async getSiteSettings(siteId: number): Promise<SiteData> {
     try {
-      const response: AxiosResponse<SiteSettings> = await this.client.get(
-        `/api/items/${siteId}/get`,
+      const response: AxiosResponse<ApiResponseEnvelope<SiteData>> = await this.client.post(
+        `/api/items/${siteId}/getsite`,
         {
-          params: {
-            ApiVersion: 1.1,
-            ApiKey: this.apiKey,
-          },
+          ApiVersion: '1.1',
+          ApiKey: this.apiKey,
         }
       );
-      return response.data;
+
+      const data = response.data?.Response?.Data;
+      if (!data) {
+        throw new Error('Owlanter API did not return site data');
+      }
+      return data;
     } catch (error) {
       throw this.handleError(error, 'Failed to get site settings');
     }
@@ -55,11 +58,7 @@ export class PleasanterApiClient {
     try {
       const response: AxiosResponse<ApiResponse> = await this.client.post(
         `/api/items/${siteId}/updatesitesettings`,
-        {
-          ApiVersion: 1.1,
-          ApiKey: this.apiKey,
-          ...payload,
-        }
+        ensureApiPayload(this.apiKey, payload)
       );
       return response.data;
     } catch (error) {
@@ -118,7 +117,7 @@ export class PleasanterApiClient {
   }
 
   /**
-   * Test connection to Pleasanter server
+   * Test connection to Owlanter server
    */
   async testConnection(): Promise<boolean> {
     try {
@@ -148,13 +147,24 @@ export class PleasanterApiClient {
         } else if (status === 404) {
           return new Error('Site not found');
         } else if (data?.Message) {
-          return new Error(`Pleasanter API error: ${data.Message}`);
+          return new Error(`Owlanter API error: ${data.Message}`);
         }
       } else if (error.request) {
         // Request was made but no response
-        return new Error('Cannot connect to Pleasanter server. Check your network connection.');
+        return new Error('Cannot connect to Owlanter server. Check your network connection.');
       }
     }
-    return new Error(`${defaultMessage}: ${error.message || 'Unknown error'}`);
+    return new Error(`${defaultMessage}: ${error?.message ?? 'Unknown error'}`);
   }
+}
+
+function ensureApiPayload<T extends Record<string, unknown>>(apiKey: string, payload: T): T & {
+  ApiVersion: string;
+  ApiKey: string;
+} {
+  return {
+    ApiVersion: '1.1',
+    ApiKey: apiKey,
+    ...payload,
+  };
 }
