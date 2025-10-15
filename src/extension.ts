@@ -47,7 +47,11 @@ export async function activate(context: vscode.ExtensionContext) {
     console.log('Owlanter: All commands registered successfully');
 
     // Show welcome message on first activation
-    const hasShownWelcome = context.globalState.get('owleanter.hasShownWelcome');
+    const welcomeKey = 'owlanter.hasShownWelcome';
+    const legacyWelcomeKey = 'owleanter.hasShownWelcome';
+    const hasShownWelcome =
+      context.globalState.get<boolean>(welcomeKey) ??
+      context.globalState.get<boolean>(legacyWelcomeKey);
     if (!hasShownWelcome) {
       const answer = await vscode.window.showInformationMessage(
         'Welcome to Owlanter! Configure your Owlanter connection first.',
@@ -59,7 +63,10 @@ export async function activate(context: vscode.ExtensionContext) {
         await vscode.commands.executeCommand('owlanter.configSet');
       }
 
-      context.globalState.update('owleanter.hasShownWelcome', true);
+      await context.globalState.update(welcomeKey, true);
+      if (context.globalState.get(legacyWelcomeKey) !== undefined) {
+        await context.globalState.update(legacyWelcomeKey, undefined);
+      }
     }
   } catch (error: any) {
     vscode.window.showErrorMessage(`Owlanter activation failed: ${error.message}`);

@@ -33,7 +33,7 @@ export class SiteManager {
     try {
       const content = await fs.readFile(this.sitesFile, 'utf8');
       const config: SitesConfig = JSON.parse(content);
-      const mutated = this.ensureSiteFolderMetadata(config);
+      const mutated = await this.ensureSiteFolderMetadata(config);
 
       if (mutated) {
         await this.writeSitesFile(config);
@@ -62,7 +62,7 @@ export class SiteManager {
    */
   async saveSites(config: SitesConfig): Promise<void> {
     try {
-      this.ensureSiteFolderMetadata(config);
+      await this.ensureSiteFolderMetadata(config);
       await this.writeSitesFile(config);
     } catch (error: any) {
       throw new Error(`Failed to save site.json: ${error.message}`);
@@ -388,12 +388,21 @@ export class SiteManager {
     return info;
   }
 
-  private ensureSiteFolderMetadata(config: SitesConfig): boolean {
+  private async ensureSiteFolderMetadata(config: SitesConfig): Promise<boolean> {
     let mutated = false;
 
     for (const site of config.sites) {
-      if (!site['folder-name'] || typeof site['folder-name'] !== 'string') {
-        site['folder-name'] = this.createSiteFolderName(site['site-id'], site['site-name']);
+      const expected = this.createSiteFolderName(site['site-id'], site['site-name']);
+      const current = site['folder-name'];
+
+      if (current !== expected) {
+        if (current && typeof current === 'string') {
+          const renamed = await this.renameSiteDirectory(current, expected);
+          if (!renamed) {
+            continue;
+          }
+        }
+        site['folder-name'] = expected;
         mutated = true;
       }
     }
@@ -417,15 +426,51 @@ export class SiteManager {
   }
 
   private createSiteFolderName(siteId: number, siteName: string): string {
-    const trimmedName = (siteName || '').trim();
-    const sanitized = trimmedName
-      .normalize('NFKD')
-      .replace(/[\u0300-\u036f]/g, '')
-      .replace(/[^a-zA-Z0-9_-]+/g, '_')
-      .replace(/^_+|_+$/g, '')
-      .slice(0, 40);
-    const safeName = sanitized.length > 0 ? sanitized : `site_${siteId}`;
+    const trimmed = (siteName ?? '').trim();
+    const sanitized = trimmed
+      .replace(/[<>:"/\\|?*\u0000-\u001f]/g, '_')
+      .replace(/\s+/g, ' ')
+      .replace(/\.+$/g, '')
+      .trim();
+    const limited = sanitized.slice(0, 80).trim();
+    const safeName = limited.length > 0 ? limited : `site_${siteId}`;
     return `${siteId}_${safeName}`;
+  }
+
+  private async renameSiteDirectory(oldName: string, newName: string): Promise<boolean> {
+    if (!oldName || oldName === newName) {
+      return true;
+    }
+
+    const oldPath = path.join(this.sitesRootDir, oldName);
+    const newPath = path.join(this.sitesRootDir, newName);
+
+    try {
+      await fs.access(oldPath);
+    } catch {
+      return true;
+    }
+
+    if (oldPath === newPath) {
+      return true;
+    }
+
+    try {
+      await fs.access(newPath);
+      console.warn(`Target site directory already exists: ${newPath}. Skipping rename.`);
+      return false;
+    } catch {
+      // Target does not exist, proceed with rename.
+    }
+
+    try {
+      await fs.mkdir(this.sitesRootDir, { recursive: true });
+      await fs.rename(oldPath, newPath);
+      return true;
+    } catch (error) {
+      console.warn(`Failed to rename site directory from ${oldName} to ${newName}:`, error);
+      return false;
+    }
   }
 
   private createDefaultSiteInfo(site: SiteInfo): SiteInfoFile {

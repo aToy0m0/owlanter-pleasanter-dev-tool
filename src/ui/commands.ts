@@ -125,7 +125,7 @@ function registerSiteCommands(
       try {
         const siteIdInput = await vscode.window.showInputBox({
           prompt: 'Enter Site ID',
-          placeHolder: '5',
+          placeHolder: '1234',
           validateInput: value => (!value || isNaN(Number(value)) ? 'Please enter a valid number' : null),
         });
 
