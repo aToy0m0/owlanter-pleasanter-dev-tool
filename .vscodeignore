@@ -10,6 +10,7 @@ vsc-extension-quickstart.md
 **/*.ts
 **/.vscode-test.*
 CLAUDE.md
+_config/*
 # Only exclude dev dependencies, keep production dependencies
 node_modules/@types/**
 node_modules/@typescript-eslint/**
