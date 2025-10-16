@@ -1,8 +1,71 @@
-import * as vscode from 'vscode';
+﻿import * as vscode from 'vscode';
 import { SiteManager } from '../core/site-manager';
 import { ScriptSynchronizer } from '../core/script-sync';
 import { FileWatcher } from '../core/file-watcher';
 import { createApiClient, normalizeDomain } from '../utils/connection';
+import type { ScriptTreeItem, SiteTreeItem } from './tree-provider';
+
+type ScriptNodeArgs = {
+  siteId: number;
+  scriptType: 'server' | 'client';
+  scriptId?: number;
+  filePath?: string;
+};
+
+type SiteNodeArgs = {
+  siteId: number;
+};
+
+function normalizeSiteId(arg: unknown): number | undefined {
+  if (!arg) {
+    return undefined;
+  }
+  if (typeof arg === 'object' && arg !== null) {
+    const maybeSite = arg as SiteNodeArgs;
+    if (typeof (maybeSite as SiteNodeArgs).siteId === 'number') {
+      return maybeSite.siteId;
+    }
+    const maybeTreeItem = arg as SiteTreeItem;
+    if (maybeTreeItem.siteInfo && typeof maybeTreeItem.siteInfo['site-id'] === 'number') {
+      return maybeTreeItem.siteInfo['site-id'];
+    }
+  }
+  return undefined;
+}
+
+function normalizeScriptArgs(arg: unknown): ScriptNodeArgs | undefined {
+  if (!arg || typeof arg !== 'object') {
+    return undefined;
+  }
+  const maybeArgs = arg as ScriptNodeArgs;
+  if (
+    typeof maybeArgs.siteId === 'number' &&
+    (maybeArgs.scriptType === 'server' || maybeArgs.scriptType === 'client')
+  ) {
+    return {
+      siteId: maybeArgs.siteId,
+      scriptType: maybeArgs.scriptType,
+      scriptId: maybeArgs.scriptId,
+      filePath: maybeArgs.filePath,
+    };
+  }
+
+  const maybeTreeItem = arg as ScriptTreeItem;
+  if (
+    maybeTreeItem.siteInfo &&
+    typeof maybeTreeItem.siteInfo['site-id'] === 'number' &&
+    (maybeTreeItem.scriptType === 'server' || maybeTreeItem.scriptType === 'client')
+  ) {
+    return {
+      siteId: maybeTreeItem.siteInfo['site-id'],
+      scriptType: maybeTreeItem.scriptType,
+      scriptId: maybeTreeItem.scriptId,
+      filePath: maybeTreeItem.filePath,
+    };
+  }
+
+  return undefined;
+}
 
 export async function registerCommands(
   context: vscode.ExtensionContext,
@@ -204,9 +267,10 @@ function registerSyncCommands(
 ): void {
   // Pull
   context.subscriptions.push(
-    vscode.commands.registerCommand('owlanter.pull', async () => {
+    vscode.commands.registerCommand('owlanter.pull', async (payload?: SiteNodeArgs | SiteTreeItem) => {
       try {
-        await scriptSynchronizer.pull();
+        const siteId = normalizeSiteId(payload);
+        await scriptSynchronizer.pull(siteId);
         await vscode.commands.executeCommand('owlanter.sitesRefresh');
       } catch (error: any) {
         vscode.window.showErrorMessage(`Pull failed: ${error.message}`);
@@ -216,8 +280,9 @@ function registerSyncCommands(
 
   // Push
   context.subscriptions.push(
-    vscode.commands.registerCommand('owlanter.push', async () => {
+    vscode.commands.registerCommand('owlanter.push', async (payload?: SiteNodeArgs | SiteTreeItem) => {
       try {
+        const siteId = normalizeSiteId(payload);
         const action = await vscode.window.showQuickPick(
           [
             { label: 'Push changes', value: 'push' },
@@ -232,12 +297,13 @@ function registerSyncCommands(
         }
 
         if (action.value === 'dry-run') {
-          await scriptSynchronizer.push({ dryRun: true });
+          await scriptSynchronizer.push({ dryRun: true, siteId });
         } else if (action.value === 'force') {
-          await scriptSynchronizer.push({ force: true });
+          await scriptSynchronizer.push({ force: true, siteId });
         } else {
-          await scriptSynchronizer.push();
+          await scriptSynchronizer.push({ siteId });
         }
+        await vscode.commands.executeCommand('owlanter.sitesRefresh');
       } catch (error: any) {
         vscode.window.showErrorMessage(`Push failed: ${error.message}`);
       }
@@ -246,13 +312,27 @@ function registerSyncCommands(
 
   // Watch
   context.subscriptions.push(
-    vscode.commands.registerCommand('owlanter.watch', async () => {
+    vscode.commands.registerCommand('owlanter.watch', async (payload?: SiteNodeArgs | SiteTreeItem) => {
       try {
-        const site = await requireCurrentSite(siteManager);
+        let site = null;
+        const siteId = normalizeSiteId(payload);
+        if (siteId !== undefined) {
+          site = await siteManager.getSiteById(siteId);
+          if (!site) {
+            vscode.window.showErrorMessage('Site not found.');
+            return;
+          }
+        } else {
+          site = await requireCurrentSite(siteManager);
+        }
 
         if (fileWatcher.isWatching()) {
-          await fileWatcher.stop();
-          return;
+          if (fileWatcher.getActiveSiteId() !== site['site-id']) {
+            await fileWatcher.stop();
+          } else {
+            await fileWatcher.stop();
+            return;
+          }
         }
 
         const paths = scriptSynchronizer.getWatchPaths(site['site-id']);
@@ -265,13 +345,17 @@ function registerSyncCommands(
 
   // Diff
   context.subscriptions.push(
-    vscode.commands.registerCommand('owlanter.diff', async () => {
-      try {
-        await scriptSynchronizer.diff();
-      } catch (error: any) {
-        vscode.window.showErrorMessage(`Diff failed: ${error.message}`);
+    vscode.commands.registerCommand(
+      'owlanter.diff',
+      async (payload?: SiteNodeArgs | SiteTreeItem | ScriptNodeArgs | ScriptTreeItem) => {
+        try {
+          const siteId = normalizeSiteId(payload) ?? normalizeScriptArgs(payload)?.siteId;
+          await scriptSynchronizer.diff(siteId);
+        } catch (error: any) {
+          vscode.window.showErrorMessage(`Diff failed: ${error.message}`);
+        }
       }
-    })
+    )
   );
 }
 
@@ -282,14 +366,25 @@ function registerUploadCommands(
 ): void {
   // Upload (auto detect)
   context.subscriptions.push(
-    vscode.commands.registerCommand('owlanter.upload', async () => {
+    vscode.commands.registerCommand('owlanter.upload', async (payload?: ScriptNodeArgs | ScriptTreeItem) => {
       try {
+        const scriptArgs = normalizeScriptArgs(payload);
+        if (scriptArgs && scriptArgs.filePath) {
+          const type = scriptArgs.scriptType === 'server' ? 'server' : 'client';
+          await scriptSynchronizer.upload([scriptArgs.filePath], type, scriptArgs.siteId);
+          await vscode.commands.executeCommand('owlanter.sitesRefresh');
+          vscode.window.showInformationMessage('Script uploaded successfully.');
+          return;
+        }
+
         const site = await requireCurrentSite(siteManager);
         const files = await pickScriptFiles(siteManager.getSiteDir(site['site-id']));
         if (files.length === 0) {
           return;
         }
-        await scriptSynchronizer.upload(files);
+        await scriptSynchronizer.upload(files, undefined, site['site-id']);
+        await vscode.commands.executeCommand('owlanter.sitesRefresh');
+        vscode.window.showInformationMessage('Scripts uploaded successfully.');
       } catch (error: any) {
         vscode.window.showErrorMessage(`Upload failed: ${error.message}`);
       }
@@ -298,14 +393,24 @@ function registerUploadCommands(
 
   // Upload Server
   context.subscriptions.push(
-    vscode.commands.registerCommand('owlanter.uploadServer', async () => {
+    vscode.commands.registerCommand('owlanter.uploadServer', async (payload?: ScriptNodeArgs | ScriptTreeItem) => {
       try {
+        const scriptArgs = normalizeScriptArgs(payload);
+        if (scriptArgs && scriptArgs.scriptType === 'server' && scriptArgs.filePath) {
+          await scriptSynchronizer.upload([scriptArgs.filePath], 'server', scriptArgs.siteId);
+          await vscode.commands.executeCommand('owlanter.sitesRefresh');
+          vscode.window.showInformationMessage('Server script uploaded.');
+          return;
+        }
+
         const site = await requireCurrentSite(siteManager);
         const files = await pickScriptFiles(siteManager.getServerScriptDir(site['site-id']));
         if (files.length === 0) {
           return;
         }
-        await scriptSynchronizer.upload(files, 'server');
+        await scriptSynchronizer.upload(files, 'server', site['site-id']);
+        await vscode.commands.executeCommand('owlanter.sitesRefresh');
+        vscode.window.showInformationMessage('Server scripts uploaded.');
       } catch (error: any) {
         vscode.window.showErrorMessage(`Server upload failed: ${error.message}`);
       }
@@ -314,14 +419,24 @@ function registerUploadCommands(
 
   // Upload Client
   context.subscriptions.push(
-    vscode.commands.registerCommand('owlanter.uploadClient', async () => {
+    vscode.commands.registerCommand('owlanter.uploadClient', async (payload?: ScriptNodeArgs | ScriptTreeItem) => {
       try {
+        const scriptArgs = normalizeScriptArgs(payload);
+        if (scriptArgs && scriptArgs.scriptType === 'client' && scriptArgs.filePath) {
+          await scriptSynchronizer.upload([scriptArgs.filePath], 'client', scriptArgs.siteId);
+          await vscode.commands.executeCommand('owlanter.sitesRefresh');
+          vscode.window.showInformationMessage('Client script uploaded.');
+          return;
+        }
+
         const site = await requireCurrentSite(siteManager);
         const files = await pickScriptFiles(siteManager.getClientScriptDir(site['site-id']));
         if (files.length === 0) {
           return;
         }
-        await scriptSynchronizer.upload(files, 'client');
+        await scriptSynchronizer.upload(files, 'client', site['site-id']);
+        await vscode.commands.executeCommand('owlanter.sitesRefresh');
+        vscode.window.showInformationMessage('Client scripts uploaded.');
       } catch (error: any) {
         vscode.window.showErrorMessage(`Client upload failed: ${error.message}`);
       }
@@ -330,13 +445,24 @@ function registerUploadCommands(
 
   // Upload file (any path)
   context.subscriptions.push(
-    vscode.commands.registerCommand('owlanter.uploadFile', async () => {
+    vscode.commands.registerCommand('owlanter.uploadFile', async (payload?: ScriptNodeArgs | ScriptTreeItem) => {
       try {
+        const scriptArgs = normalizeScriptArgs(payload);
+        if (scriptArgs && scriptArgs.filePath) {
+          const type = scriptArgs.scriptType === 'server' ? 'server' : 'client';
+          await scriptSynchronizer.upload([scriptArgs.filePath], type, scriptArgs.siteId);
+          await vscode.commands.executeCommand('owlanter.sitesRefresh');
+          vscode.window.showInformationMessage('Script uploaded successfully.');
+          return;
+        }
+
         const files = await pickScriptFiles();
         if (files.length === 0) {
           return;
         }
         await scriptSynchronizer.upload(files);
+        await vscode.commands.executeCommand('owlanter.sitesRefresh');
+        vscode.window.showInformationMessage('Scripts uploaded successfully.');
       } catch (error: any) {
         vscode.window.showErrorMessage(`File upload failed: ${error.message}`);
       }
@@ -383,8 +509,58 @@ function registerScriptManagementCommands(
 
   // Script Set
   context.subscriptions.push(
-    vscode.commands.registerCommand('owlanter.scriptSet', async () => {
+    vscode.commands.registerCommand('owlanter.scriptSet', async (payload?: ScriptNodeArgs | ScriptTreeItem) => {
       try {
+        const args = normalizeScriptArgs(payload);
+        if (args && typeof args.siteId === 'number' && args.scriptType) {
+          if (args.scriptId === undefined) {
+            vscode.window.showWarningMessage('Script requires @pleasanter-id metadata to toggle active state.');
+            return;
+          }
+
+          const sitesConfig = await siteManager.getSites();
+          const targetSite = sitesConfig.sites.find(s => s['site-id'] === args.siteId);
+          if (!targetSite) {
+            vscode.window.showErrorMessage('Site not found.');
+            return;
+          }
+
+          if (!targetSite.active) {
+            const choice = await vscode.window.showWarningMessage(
+              'Site "' + targetSite['site-name'] + '" is not active. Activate it to manage scripts?',
+              'Activate Site',
+              'Cancel'
+            );
+            if (choice !== 'Activate Site') {
+              return;
+            }
+            await siteManager.selectSite(args.siteId);
+            await vscode.commands.executeCommand('owlanter.sitesRefresh');
+          }
+
+          const siteId = args.siteId;
+          const active = await scriptSynchronizer.getActiveScriptIds(siteId);
+          const nextServer = active.server.length > 0 ? [active.server[0]] : [];
+          const nextClient = active.client.length > 0 ? [active.client[0]] : [];
+
+          const targetArray = args.scriptType === 'server' ? nextServer : nextClient;
+          const existingIndex = targetArray.indexOf(args.scriptId);
+          const willActivate = existingIndex === -1;
+
+          if (willActivate) {
+            targetArray.splice(0, targetArray.length, args.scriptId);
+          } else {
+            targetArray.splice(existingIndex, 1);
+          }
+
+          await scriptSynchronizer.setActiveScripts(siteId, nextServer, nextClient);
+          await vscode.commands.executeCommand('owlanter.sitesRefresh');
+          vscode.window.showInformationMessage(
+            'Script #' + args.scriptId + (willActivate ? ' activated.' : ' deactivated.')
+          );
+          return;
+        }
+
         const site = await requireCurrentSite(siteManager);
         const [serverScripts, clientScripts, active] = await Promise.all([
           scriptSynchronizer.listLocalServerScripts(site['site-id']),
@@ -401,7 +577,7 @@ function registerScriptManagementCommands(
           ...serverScripts
             .filter(script => script.id !== null)
             .map(script => ({
-              label: `Server #${script.id}`,
+              label: 'Server #' + script.id,
               description: script.title,
               picked: active.server.includes(script.id!),
               type: 'server' as const,
@@ -410,7 +586,7 @@ function registerScriptManagementCommands(
           ...clientScripts
             .filter(script => script.id !== null)
             .map(script => ({
-              label: `Client #${script.id}`,
+              label: 'Client #' + script.id,
               description: script.title,
               picked: active.client.includes(script.id!),
               type: 'client' as const,
@@ -424,34 +600,55 @@ function registerScriptManagementCommands(
         }
 
         const selection = await vscode.window.showQuickPick(picks, {
-          placeHolder: 'Select scripts to mark as active (multi-select)',
-          canPickMany: true,
+          placeHolder: 'Select a script to mark as active',
+          canPickMany: false,
         });
 
         if (!selection) {
           return;
         }
 
-        const selectedServer = selection.filter(item => item.type === 'server').map(item => item.id);
-        const selectedClient = selection.filter(item => item.type === 'client').map(item => item.id);
+        const currentServer = active.server.length > 0 ? [active.server[0]] : [];
+        const currentClient = active.client.length > 0 ? [active.client[0]] : [];
 
-        await scriptSynchronizer.setActiveScripts(site['site-id'], selectedServer, selectedClient);
-        vscode.window.showInformationMessage('Active scripts updated.');
+        if (selection.type === 'server') {
+          await scriptSynchronizer.setActiveScripts(site['site-id'], [selection.id], currentClient);
+        } else {
+          await scriptSynchronizer.setActiveScripts(site['site-id'], currentServer, [selection.id]);
+        }
+        vscode.window.showInformationMessage('Active script updated.');
+        await vscode.commands.executeCommand('owlanter.sitesRefresh');
       } catch (error: any) {
-        vscode.window.showErrorMessage(`Failed to set active scripts: ${error.message}`);
+        vscode.window.showErrorMessage('Failed to set active scripts: ' + error.message);
       }
     })
   );
 
   // Script Clear
   context.subscriptions.push(
-    vscode.commands.registerCommand('owlanter.scriptClear', async () => {
+    vscode.commands.registerCommand('owlanter.scriptClear', async (payload?: ScriptNodeArgs | ScriptTreeItem) => {
       try {
+        const args = normalizeScriptArgs(payload);
+        if (args && typeof args.siteId === 'number' && args.scriptType) {
+          const siteId = args.siteId;
+          const active = await scriptSynchronizer.getActiveScriptIds(siteId);
+          const nextServer = args.scriptType === 'server' ? [] : active.server.slice(0, 1);
+          const nextClient = args.scriptType === 'client' ? [] : active.client.slice(0, 1);
+
+          await scriptSynchronizer.setActiveScripts(siteId, nextServer, nextClient);
+          await vscode.commands.executeCommand('owlanter.sitesRefresh');
+          vscode.window.showInformationMessage(
+            args.scriptType === 'server' ? 'Active server scripts cleared.' : 'Active client scripts cleared.'
+          );
+          return;
+        }
+
         const site = await requireCurrentSite(siteManager);
         await scriptSynchronizer.clearActiveScripts(site['site-id']);
-        vscode.window.showInformationMessage('Active scripts cleared.');
+        await vscode.commands.executeCommand('owlanter.sitesRefresh');
+        vscode.window.showInformationMessage('All active scripts cleared.');
       } catch (error: any) {
-        vscode.window.showErrorMessage(`Failed to clear active scripts: ${error.message}`);
+        vscode.window.showErrorMessage('Failed to clear active scripts: ' + error.message);
       }
     })
   );
@@ -509,16 +706,16 @@ function registerConfigCommands(
         const config = await siteManager.getConfig();
         const settings = vscode.workspace.getConfiguration('owlanter');
 
-        const configDomain = (config['pleasanter-domain'] ?? '').trim() || '(未設定)';
+        const configDomain = (config['pleasanter-domain'] ?? '').trim() || '(譛ｪ險ｭ螳・';
         const configKey = (config['pleasanter-api'] ?? '').trim();
-        const maskedConfigKey = configKey ? `${configKey.substring(0, 4)}...` : '(未設定)';
+        const maskedConfigKey = configKey ? `${configKey.substring(0, 4)}...` : '(譛ｪ險ｭ螳・';
 
-        const settingsDomain = (settings.get<string>('domain') ?? '').trim() || '(未設定)';
+        const settingsDomain = (settings.get<string>('domain') ?? '').trim() || '(譛ｪ險ｭ螳・';
         const settingsKey = (settings.get<string>('apiKey') ?? '').trim();
-        const maskedSettingsKey = settingsKey ? `${settingsKey.substring(0, 4)}...` : '(未設定)';
+        const maskedSettingsKey = settingsKey ? `${settingsKey.substring(0, 4)}...` : '(譛ｪ險ｭ螳・';
 
         const message = [
-          '**Owlanter 設定**',
+          '**Owlanter 險ｭ螳・*',
           `- config.json Domain: ${configDomain}`,
           `- config.json API Key: ${maskedConfigKey}`,
           `- Settings Domain: ${settingsDomain}`,
@@ -593,7 +790,7 @@ function registerConfigCommands(
 async function requireCurrentSite(siteManager: SiteManager) {
   const site = await siteManager.getCurrentSite();
   if (!site) {
-    throw new Error('No site selected. Use Owlanter: サイト選択 to choose a site.');
+    throw new Error('No site selected. Use Owlanter: 繧ｵ繧､繝磯∈謚・to choose a site.');
   }
   return site;
 }
@@ -612,3 +809,5 @@ async function pickScriptFiles(defaultDir?: string): Promise<string[]> {
 
   return result ? result.map(uri => uri.fsPath) : [];
 }
+
+

@@ -22,10 +22,12 @@ export async function activate(context: vscode.ExtensionContext) {
 
   try {
     // Initialize Site Manager
-    const siteManager = new SiteManager(workspaceRoot);
+    const siteManager = new SiteManager(context, workspaceRoot);
+    const scriptSynchronizer = new ScriptSynchronizer(siteManager);
+    const fileWatcher = new FileWatcher(scriptSynchronizer);
 
     // Register tree data provider for Owlanter Sites view
-    const sitesProvider = new OwlanterSitesProvider(context, siteManager);
+    const sitesProvider = new OwlanterSitesProvider(siteManager, scriptSynchronizer);
     vscode.window.registerTreeDataProvider('owlanterSites', sitesProvider);
 
     // Register refresh command for tree view
@@ -34,9 +36,6 @@ export async function activate(context: vscode.ExtensionContext) {
         sitesProvider.refresh();
       })
     );
-
-    const scriptSynchronizer = new ScriptSynchronizer(siteManager);
-    const fileWatcher = new FileWatcher(scriptSynchronizer);
 
     // Ensure watcher stops on deactivate
     context.subscriptions.push({ dispose: () => fileWatcher.stop() });

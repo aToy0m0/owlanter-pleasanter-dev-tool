@@ -1,15 +1,20 @@
-import * as vscode from 'vscode';
+﻿import * as vscode from 'vscode';
 import * as path from 'path';
 import * as fs from 'fs/promises';
 import { SitesConfig, SiteInfo, Config, SiteInfoFile } from '../api/types';
 
-const CONFIG_COMMENT = '// vscode設定に記入した場合は同期ボタンでconfig.jsonに反映してください';
+const CONFIG_COMMENT = '// vscode設定に記述した場合は同期ボタンでconfig.jsonに反映してください';
+const SITES_STATE_KEY = 'owlanter.sitesConfig';
+const CONFIG_DOMAIN_KEY = 'owlanter.domain';
+const CONFIG_SETTINGS_KEY = 'owlanter.configSettings';
+const CONFIG_API_SECRET_KEY = 'owlanter.apiKey';
 
 /**
  * Site Manager
  * Manages multiple Owlanter sites and configuration
  */
 export class SiteManager {
+  private context: vscode.ExtensionContext;
   private workspaceRoot: string;
   private configDir: string;
   private sitesFile: string;
@@ -17,7 +22,8 @@ export class SiteManager {
   private sitesRootDir: string;
   private siteFolderCache: Map<number, string>;
 
-  constructor(workspaceRoot: string) {
+  constructor(context: vscode.ExtensionContext, workspaceRoot: string) {
+    this.context = context;
     this.workspaceRoot = workspaceRoot;
     this.configDir = path.join(workspaceRoot, '_config');
     this.sitesRootDir = path.join(this.configDir, 'SITES');
@@ -30,27 +36,39 @@ export class SiteManager {
    * Get all sites configuration
    */
   async getSites(): Promise<SitesConfig> {
+    const stored = this.context.workspaceState.get<SitesConfig>(SITES_STATE_KEY);
+    if (stored) {
+      const config: SitesConfig = JSON.parse(JSON.stringify(stored));
+      const mutated = await this.ensureSiteFolderMetadata(config);
+      if (mutated) {
+        await this.persistSites(config);
+      } else {
+        this.updateSiteFolderCache(config);
+      }
+      return config;
+    }
+
     try {
       const content = await fs.readFile(this.sitesFile, 'utf8');
       const config: SitesConfig = JSON.parse(content);
       const mutated = await this.ensureSiteFolderMetadata(config);
 
       if (mutated) {
-        await this.writeSitesFile(config);
+        await this.persistSites(config);
       } else {
         this.updateSiteFolderCache(config);
+        await this.context.workspaceState.update(SITES_STATE_KEY, config);
       }
 
       return config;
     } catch (error: any) {
       if (error.code === 'ENOENT') {
-        // File doesn't exist, create initial config
         const initialConfig: SitesConfig = {
           sites: [],
           'current-site': 0,
           'default-site': 0,
         };
-        await this.writeSitesFile(initialConfig);
+        await this.persistSites(initialConfig);
         return initialConfig;
       }
       throw new Error(`Failed to load site.json: ${error.message}`);
@@ -63,7 +81,7 @@ export class SiteManager {
   async saveSites(config: SitesConfig): Promise<void> {
     try {
       await this.ensureSiteFolderMetadata(config);
-      await this.writeSitesFile(config);
+      await this.persistSites(config);
     } catch (error: any) {
       throw new Error(`Failed to save site.json: ${error.message}`);
     }
@@ -239,6 +257,18 @@ export class SiteManager {
    * Get global configuration
   */
   async getConfig(): Promise<Config> {
+    const storedSettings = this.context.workspaceState.get<Config['settings']>(CONFIG_SETTINGS_KEY);
+    const storedDomain = this.context.globalState.get<string>(CONFIG_DOMAIN_KEY) ?? '';
+    const storedApi = await this.context.secrets.get(CONFIG_API_SECRET_KEY);
+
+    if (storedSettings) {
+      return {
+        'owlanter-domain': storedDomain,
+        'owlanter-api': storedApi ?? '',
+        settings: storedSettings,
+      };
+    }
+
     try {
       const content = await fs.readFile(this.configFile, 'utf8');
       const sanitized = content
@@ -266,12 +296,12 @@ export class SiteManager {
       delete mutableParsed['pleasanter-domain'];
       delete mutableParsed['pleasanter-api'];
 
+      await this.persistConfig(parsed);
       return parsed;
     } catch (error: any) {
       if (error.code === 'ENOENT') {
-        throw new Error(
-          'config.json not found. Please create it in _config/ directory.'
-        );
+        const defaultConfig = await this.initializeConfig(true);
+        return defaultConfig;
       }
       throw new Error(`Failed to load config.json: ${error.message}`);
     }
@@ -282,21 +312,9 @@ export class SiteManager {
    */
   async saveConfig(config: Config): Promise<void> {
     try {
-      const domain = (config['owlanter-domain'] ?? config['pleasanter-domain'] ?? '').trim();
-      const apiKey = (config['owlanter-api'] ?? config['pleasanter-api'] ?? '').trim();
-
-      const mutableConfig = config as unknown as Record<string, unknown>;
-      mutableConfig['owlanter-domain'] = domain;
-      mutableConfig['owlanter-api'] = apiKey;
-      delete mutableConfig['pleasanter-domain'];
-      delete mutableConfig['pleasanter-api'];
-
-      await fs.mkdir(this.configDir, { recursive: true });
-      const serialized = JSON.stringify(config, null, 2);
-      const output = `${CONFIG_COMMENT}\n${serialized}\n`;
-      await fs.writeFile(this.configFile, output, 'utf8');
+      await this.persistConfig(config);
     } catch (error: any) {
-      throw new Error(`Failed to save config.json: ${error.message}`);
+      throw new Error(`Failed to save config: ${error.message}`);
     }
   }
 
@@ -304,6 +322,13 @@ export class SiteManager {
    * Check whether configuration file exists
    */
   async configExists(): Promise<boolean> {
+    const storedSettings = this.context.workspaceState.get<Config['settings']>(CONFIG_SETTINGS_KEY);
+    const storedDomain = this.context.globalState.get<string>(CONFIG_DOMAIN_KEY);
+    const storedApi = await this.context.secrets.get(CONFIG_API_SECRET_KEY);
+    if (storedSettings || storedDomain || storedApi) {
+      return true;
+    }
+
     try {
       await fs.stat(this.configFile);
       return true;
@@ -340,7 +365,7 @@ export class SiteManager {
       },
     };
 
-    await this.saveConfig(defaultConfig);
+    await this.persistConfig(defaultConfig);
     return defaultConfig;
   }
 
@@ -423,6 +448,36 @@ export class SiteManager {
     await fs.mkdir(this.sitesRootDir, { recursive: true });
     await fs.writeFile(this.sitesFile, JSON.stringify(config, null, 2), 'utf8');
     this.updateSiteFolderCache(config);
+  }
+
+  private async persistSites(config: SitesConfig): Promise<void> {
+    await this.context.workspaceState.update(SITES_STATE_KEY, config);
+    await this.writeSitesFile(config);
+  }
+
+  private async persistConfig(config: Config): Promise<void> {
+    const normalized: Config = JSON.parse(JSON.stringify(config));
+    const domain = (normalized['owlanter-domain'] ?? normalized['pleasanter-domain'] ?? '').trim();
+    const apiKey = (normalized['owlanter-api'] ?? normalized['pleasanter-api'] ?? '').trim();
+
+    normalized['owlanter-domain'] = domain;
+    normalized['owlanter-api'] = apiKey;
+    const mutableNormalized = normalized as unknown as Record<string, unknown>;
+    delete mutableNormalized['pleasanter-domain'];
+    delete mutableNormalized['pleasanter-api'];
+
+    await this.context.globalState.update(CONFIG_DOMAIN_KEY, domain);
+    if (apiKey) {
+      await this.context.secrets.store(CONFIG_API_SECRET_KEY, apiKey);
+    } else {
+      await this.context.secrets.delete(CONFIG_API_SECRET_KEY);
+    }
+    await this.context.workspaceState.update(CONFIG_SETTINGS_KEY, normalized.settings);
+
+    await fs.mkdir(this.configDir, { recursive: true });
+    const serialized = JSON.stringify(normalized, null, 2);
+    const output = `${CONFIG_COMMENT}\n${serialized}\n`;
+    await fs.writeFile(this.configFile, output, 'utf8');
   }
 
   private createSiteFolderName(siteId: number, siteName: string): string {

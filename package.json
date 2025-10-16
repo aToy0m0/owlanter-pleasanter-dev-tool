@@ -2,7 +2,7 @@
   "name": "owlanter",
   "displayName": "Owlanter",
   "description": "Owlanter - Pleasanter script development tool",
-  "version": "1.0.2",
+  "version": "1.1.1",
   "publisher": "aToy0m0",
   "repository": {
     "type": "git",
@@ -196,6 +196,64 @@
       }
     ],
     "menus": {
+      "commandPalette": [
+        {
+          "command": "owlanter.sitesRefresh",
+          "when": "false"
+        },
+        {
+          "command": "owlanter.siteSelect",
+          "when": "false"
+        },
+        {
+          "command": "owlanter.siteAdd",
+          "when": "false"
+        },
+        {
+          "command": "owlanter.pull",
+          "when": "false"
+        },
+        {
+          "command": "owlanter.push",
+          "when": "false"
+        },
+        {
+          "command": "owlanter.watch",
+          "when": "false"
+        },
+        {
+          "command": "owlanter.diff",
+          "when": "false"
+        },
+        {
+          "command": "owlanter.upload",
+          "when": "false"
+        },
+        {
+          "command": "owlanter.uploadServer",
+          "when": "false"
+        },
+        {
+          "command": "owlanter.uploadClient",
+          "when": "false"
+        },
+        {
+          "command": "owlanter.uploadFile",
+          "when": "false"
+        },
+        {
+          "command": "owlanter.scriptSet",
+          "when": "false"
+        },
+        {
+          "command": "owlanter.scriptClear",
+          "when": "false"
+        },
+        {
+          "command": "owlanter.openSettings",
+          "when": "false"
+        }
+      ],
       "view/title": [
         {
           "command": "owlanter.configInit",
@@ -227,12 +285,102 @@
         {
           "command": "owlanter.siteSelect",
           "when": "view == owlanterSites && viewItem == owlanterSite",
-          "group": "inline@1"
+          "group": "0_select@0"
         },
         {
           "command": "owlanter.siteCurrent",
           "when": "view == owlanterSites && viewItem == owlanterSite",
-          "group": "1_info@1"
+          "group": "1_info@0"
+        },
+        {
+          "command": "owlanter.push",
+          "when": "view == owlanterSites && viewItem == owlanterSite",
+          "group": "inline@0"
+        },
+        {
+          "command": "owlanter.pull",
+          "when": "view == owlanterSites && viewItem == owlanterSite",
+          "group": "2_sync@0"
+        },
+        {
+          "command": "owlanter.push",
+          "when": "view == owlanterSites && viewItem == owlanterSite",
+          "group": "2_sync@1"
+        },
+        {
+          "command": "owlanter.watch",
+          "when": "view == owlanterSites && viewItem == owlanterSite",
+          "group": "2_sync@2"
+        },
+        {
+          "command": "owlanter.diff",
+          "when": "view == owlanterSites && viewItem == owlanterSite",
+          "group": "2_sync@3"
+        },
+        {
+          "command": "owlanter.scriptSet",
+          "when": "view == owlanterSites && viewItem == owlanterScript.server",
+          "group": "3_manage@0"
+        },
+        {
+          "command": "owlanter.scriptSet",
+          "when": "view == owlanterSites && viewItem == owlanterScript.client",
+          "group": "3_manage@0"
+        },
+        {
+          "command": "owlanter.scriptClear",
+          "when": "view == owlanterSites && viewItem == owlanterScript.server",
+          "group": "3_manage@1"
+        },
+        {
+          "command": "owlanter.scriptClear",
+          "when": "view == owlanterSites && viewItem == owlanterScript.client",
+          "group": "3_manage@1"
+        },
+        {
+          "command": "owlanter.diff",
+          "when": "view == owlanterSites && viewItem == owlanterScript.server",
+          "group": "2_diff@0"
+        },
+        {
+          "command": "owlanter.diff",
+          "when": "view == owlanterSites && viewItem == owlanterScript.client",
+          "group": "2_diff@0"
+        },
+        {
+          "command": "owlanter.upload",
+          "when": "view == owlanterSites && viewItem == owlanterScript.server",
+          "group": "2_upload@0"
+        },
+        {
+          "command": "owlanter.upload",
+          "when": "view == owlanterSites && viewItem == owlanterScript.client",
+          "group": "2_upload@0"
+        },
+        {
+          "command": "owlanter.uploadServer",
+          "when": "view == owlanterSites && viewItem == owlanterScript.server",
+          "group": "2_upload@1"
+        },
+        {
+          "command": "owlanter.uploadClient",
+          "when": "view == owlanterSites && viewItem == owlanterScript.client",
+          "group": "2_upload@1"
+        },
+        {
+          "command": "owlanter.uploadFile",
+          "when": "view == owlanterSites && viewItem == owlanterScript.server",
+          "group": "2_upload@2"
+        },
+        {
+          "command": "owlanter.uploadFile",
+          "when": "view == owlanterSites && viewItem == owlanterScript.client",
+          "group": "2_upload@2"
+        },
+        {
+          "command": "owlanter.scriptShow",
+          "when": "view == owlanterSites && (viewItem == owlanterScript.server || viewItem == owlanterScript.client)",
+          "group": "3_manage@0"
         }
       ]
     }

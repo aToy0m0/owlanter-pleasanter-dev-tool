@@ -1,39 +1,29 @@
-import * as vscode from 'vscode';
-import { SiteManager } from '../core/site-manager';
-import { SiteInfo } from '../api/types';
+﻿import * as vscode from "vscode";
+import { SiteManager } from "../core/site-manager";
+import { SiteInfo } from "../api/types";
+import { ScriptSynchronizer } from "../core/script-sync";
 
-/**
- * TreeDataProvider for Owlanter Sites view
- */
-export class OwlanterSitesProvider implements vscode.TreeDataProvider<SiteTreeItem> {
-  private _onDidChangeTreeData: vscode.EventEmitter<SiteTreeItem | undefined | void> = new vscode.EventEmitter<SiteTreeItem | undefined | void>();
-  readonly onDidChangeTreeData: vscode.Event<SiteTreeItem | undefined | void> = this._onDidChangeTreeData.event;
+type OwlanterTreeItem = SiteTreeItem | ScriptTreeItem;
+
+export class OwlanterSitesProvider implements vscode.TreeDataProvider<OwlanterTreeItem> {
+  private _onDidChangeTreeData = new vscode.EventEmitter<OwlanterTreeItem | undefined | void>();
+  readonly onDidChangeTreeData = this._onDidChangeTreeData.event;
 
   constructor(
-    private readonly context: vscode.ExtensionContext,
-    private readonly siteManager: SiteManager
+    private readonly siteManager: SiteManager,
+    private readonly scriptSynchronizer: ScriptSynchronizer
   ) {}
 
-  /**
-   * Refresh the tree view
-   */
   refresh(): void {
     this._onDidChangeTreeData.fire();
   }
 
-  /**
-   * Get tree item representation
-   */
-  getTreeItem(element: SiteTreeItem): vscode.TreeItem {
+  getTreeItem(element: OwlanterTreeItem): vscode.TreeItem {
     return element;
   }
 
-  /**
-   * Get children for tree view
-   */
-  async getChildren(element?: SiteTreeItem): Promise<SiteTreeItem[]> {
+  async getChildren(element?: OwlanterTreeItem): Promise<OwlanterTreeItem[]> {
     if (!element) {
-      // Root level: return all sites
       try {
         const sitesConfig = await this.siteManager.getSites();
 
@@ -42,86 +32,179 @@ export class OwlanterSitesProvider implements vscode.TreeDataProvider<SiteTreeIt
         }
 
         return sitesConfig.sites.map(site => {
-          const isCurrent = site['site-id'] === sitesConfig['current-site'];
-          const isDefault = site['site-id'] === sitesConfig['default-site'];
+          const isCurrent = site["site-id"] === sitesConfig["current-site"];
+          const isDefault = site["site-id"] === sitesConfig["default-site"];
+          const abbreviation = this.getEnvironmentAbbreviation(site.environment);
 
-          return new SiteTreeItem(
-            this.context.extensionUri,
-            site,
-            isCurrent,
-            isDefault,
-            vscode.TreeItemCollapsibleState.None
-          );
+          return new SiteTreeItem(site, isCurrent, isDefault, abbreviation, vscode.TreeItemCollapsibleState.Collapsed);
         });
-      } catch (error: any) {
-        vscode.window.showErrorMessage(`Failed to load sites: ${error.message}`);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        vscode.window.showErrorMessage(`Failed to load sites: ${message}`);
         return [];
       }
     }
 
-    // Sites don't have children in this implementation
+    if (element instanceof SiteTreeItem) {
+      const siteId = element.siteInfo["site-id"];
+
+      try {
+        const [serverScripts, clientScripts, active] = await Promise.all([
+          this.scriptSynchronizer.listLocalServerScripts(siteId),
+          this.scriptSynchronizer.listLocalClientScripts(siteId),
+          this.scriptSynchronizer.getActiveScriptIds(siteId)
+        ]);
+
+        const serverItems = serverScripts.map(script => {
+          const scriptId = script.id ?? undefined;
+          const isActive = scriptId !== undefined && active.server.includes(scriptId);
+          return new ScriptTreeItem(
+            element.siteInfo,
+            "server",
+            scriptId,
+            script.title,
+            script.filePath,
+            isActive
+          );
+        });
+
+        const clientItems = clientScripts.map(script => {
+          const scriptId = script.id ?? undefined;
+          const isActive = scriptId !== undefined && active.client.includes(scriptId);
+          return new ScriptTreeItem(
+            element.siteInfo,
+            "client",
+            scriptId,
+            script.title,
+            script.filePath,
+            isActive
+          );
+        });
+
+        return [...serverItems, ...clientItems];
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        vscode.window.showErrorMessage(`Failed to load scripts: ${message}`);
+        return [];
+      }
+    }
+
     return [];
+  }
+
+  private getEnvironmentAbbreviation(environment: string): string {
+    switch (environment?.toLowerCase()) {
+      case "production":
+        return "P";
+      case "staging":
+        return "S";
+      case "development":
+        return "D";
+      default:
+        return "U";
+    }
   }
 }
 
-/**
- * Tree item representing a Owlanter site
- */
 export class SiteTreeItem extends vscode.TreeItem {
   constructor(
-    extensionRoot: vscode.Uri,
     public readonly siteInfo: SiteInfo,
     public readonly isCurrent: boolean,
     public readonly isDefault: boolean,
+    private readonly environmentAbbreviation: string,
     public readonly collapsibleState: vscode.TreeItemCollapsibleState
   ) {
-    super(siteInfo['site-name'], collapsibleState);
+    super(SiteTreeItem.buildLabel(environmentAbbreviation, siteInfo), collapsibleState);
 
-    // Set tooltip with detailed information
     this.tooltip = [
-      `Site ID: ${siteInfo['site-id']}`,
-      `Name: ${siteInfo['site-name']}`,
-      `Description: ${siteInfo.description || 'N/A'}`,
+      `Site ID: ${siteInfo["site-id"]}`,
+      `Name: ${siteInfo["site-name"]}`,
+      `Description: ${siteInfo.description || "N/A"}`,
       `Environment: ${siteInfo.environment}`,
-      isCurrent ? '✓ Current Site' : '',
-      isDefault ? '★ Default Site' : ''
-    ].filter(Boolean).join('\n');
+      isCurrent ? "✓ Current Site" : "",
+      isDefault ? "★ Default Site" : ""
+    ]
+      .filter(Boolean)
+      .join("\n");
 
-    // Set description (shown next to label)
     const badges: string[] = [];
-    if (isCurrent) badges.push('✓');
-    if (isDefault) badges.push('★');
-    this.description = badges.length > 0
-      ? `${badges.join(' ')} - ${siteInfo.environment}`
-      : siteInfo.environment;
+    if (isCurrent) badges.push("✓");
+    if (isDefault) badges.push("★");
+    this.description = badges.length > 0 ? `${badges.join(" ")} ${siteInfo.environment}` : siteInfo.environment;
 
-    // Set icon based on environment
     this.iconPath = this.getIconForEnvironment(siteInfo.environment);
-
-    // Set context value for when clause in package.json
-    this.contextValue = 'owlanterSite';
-
-    // Add command to select site when clicked
+    this.contextValue = "owlanterSite";
     this.command = {
-      command: 'owlanter.siteSelect',
-      title: 'Select Site',
-      arguments: [siteInfo['site-id']]
+      command: "owlanter.siteSelect",
+      title: "Select Site",
+      arguments: [siteInfo["site-id"]]
     };
   }
 
-  /**
-   * Get appropriate icon for environment
-   */
+  private static buildLabel(environmentAbbreviation: string, siteInfo: SiteInfo): string {
+    const title = siteInfo["site-name"] || "Untitled";
+    return `${environmentAbbreviation}_${siteInfo["site-id"]}_${title}`;
+  }
+
   private getIconForEnvironment(environment: string): vscode.ThemeIcon {
-    switch (environment.toLowerCase()) {
-      case 'production':
-        return new vscode.ThemeIcon('server-environment', new vscode.ThemeColor('charts.red'));
-      case 'staging':
-        return new vscode.ThemeIcon('server-environment', new vscode.ThemeColor('charts.yellow'));
-      case 'development':
-        return new vscode.ThemeIcon('server-environment', new vscode.ThemeColor('charts.green'));
+    switch (environment?.toLowerCase()) {
+      case "production":
+        return new vscode.ThemeIcon("server-environment", new vscode.ThemeColor("charts.red"));
+      case "staging":
+        return new vscode.ThemeIcon("server-environment", new vscode.ThemeColor("charts.yellow"));
+      case "development":
+        return new vscode.ThemeIcon("server-environment", new vscode.ThemeColor("charts.green"));
       default:
-        return new vscode.ThemeIcon('server');
+        return new vscode.ThemeIcon("server");
     }
+  }
+}
+
+export class ScriptTreeItem extends vscode.TreeItem {
+  constructor(
+    public readonly siteInfo: SiteInfo,
+    public readonly scriptType: "server" | "client",
+    public readonly scriptId: number | undefined,
+    public readonly titleText: string,
+    public readonly filePath: string,
+    public readonly isActive: boolean
+  ) {
+    super(ScriptTreeItem.buildLabel(scriptType, scriptId, titleText), vscode.TreeItemCollapsibleState.None);
+
+    this.contextValue = scriptType === "server" ? "owlanterScript.server" : "owlanterScript.client";
+
+    const typeLabel = scriptType === "server" ? "Server" : "Client";
+    this.description = isActive ? `✓ ${typeLabel}` : typeLabel;
+
+    this.tooltip = [
+      `${typeLabel} Script`,
+      `Site: ${siteInfo["site-name"]} (#${siteInfo["site-id"]})`,
+      `Script ID: ${scriptId ?? "(none)"}`,
+      `Title: ${titleText || "(untitled)"}`,
+      `Path: ${filePath}`,
+      `Active: ${isActive}`
+    ].join("\n");
+
+    this.iconPath = new vscode.ThemeIcon(scriptType === "server" ? "symbol-method" : "symbol-event");
+
+    this.command = {
+      command: "owlanter.scriptSet",
+      title: "Toggle Active Script",
+      arguments: [
+        {
+          siteId: siteInfo["site-id"],
+          scriptType,
+          scriptId,
+          filePath
+        }
+      ]
+    };
+  }
+
+  private static buildLabel(type: "server" | "client", scriptId: number | undefined, title: string): string {
+    const prefix = type === "server" ? "S" : "C";
+    const idPart = scriptId !== undefined ? scriptId.toString() : "new";
+    const safeTitle = title && title.trim().length > 0 ? title : "(untitled)";
+    return `${prefix}_${idPart}_${safeTitle}`;
   }
 }

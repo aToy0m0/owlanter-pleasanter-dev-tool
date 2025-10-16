@@ -8,6 +8,7 @@ import { Script, ServerScript, SiteData } from '../api/types';
 import { createApiClient } from '../utils/connection';
 
 interface PushOptions {
+  siteId?: number;
   dryRun?: boolean;
   force?: boolean;
   files?: string[];
@@ -79,7 +80,7 @@ export class ScriptSynchronizer {
   }
 
   async push(options: PushOptions = {}): Promise<void> {
-    const site = await this.requireSite();
+    const site = await this.requireSite(options.siteId);
     if (options.dryRun) {
       await this.diff(site['site-id']);
       return;
@@ -194,8 +195,8 @@ export class ScriptSynchronizer {
     await this.openDiff(selected.entry);
   }
 
-  async upload(paths: string[], type?: 'server' | 'client'): Promise<void> {
-    const site = await this.requireSite();
+  async upload(paths: string[], type?: 'server' | 'client', siteId?: number): Promise<void> {
+    const site = await this.requireSite(siteId);
     if (paths.length === 0) {
       return;
     }
@@ -267,9 +268,11 @@ export class ScriptSynchronizer {
 
   async setActiveScripts(siteId: number, server: number[], client: number[]): Promise<void> {
     await this.siteManager.updateSiteInfo(siteId, info => {
+      const sanitize = (ids: number[]) =>
+        [...new Set(ids.filter(id => typeof id === 'number'))].slice(0, 1);
       info['active-scripts'] = {
-        server: [...new Set(server)].sort((a, b) => a - b),
-        client: [...new Set(client)].sort((a, b) => a - b),
+        server: sanitize(server),
+        client: sanitize(client),
       };
     });
   }
