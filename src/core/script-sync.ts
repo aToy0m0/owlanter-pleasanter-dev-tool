@@ -315,10 +315,26 @@ export class ScriptSynchronizer {
     await this.siteManager.updateSiteInfo(siteId, info => {
       const sanitize = (ids: number[]) =>
         [...new Set(ids.filter(id => typeof id === 'number'))].slice(0, 1);
-      info['active-scripts'] = {
-        server: sanitize(server),
-        client: sanitize(client),
-      };
+
+      const sanitizedServer = sanitize(server);
+      const sanitizedClient = sanitize(client);
+
+      if (sanitizedServer.length > 0) {
+        info['active-scripts'] = {
+          server: sanitizedServer,
+          client: [],
+        };
+      } else if (sanitizedClient.length > 0) {
+        info['active-scripts'] = {
+          server: [],
+          client: sanitizedClient,
+        };
+      } else {
+        info['active-scripts'] = {
+          server: [],
+          client: [],
+        };
+      }
     });
   }
 

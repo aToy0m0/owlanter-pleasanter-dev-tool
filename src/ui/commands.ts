@@ -540,23 +540,30 @@ function registerScriptManagementCommands(
 
           const siteId = args.siteId;
           const active = await scriptSynchronizer.getActiveScriptIds(siteId);
-          const nextServer = active.server.length > 0 ? [active.server[0]] : [];
-          const nextClient = active.client.length > 0 ? [active.client[0]] : [];
+          if (typeof args.scriptId !== 'number') {
+            vscode.window.showWarningMessage('This script does not have a valid ID and cannot be activated.');
+            return;
+          }
 
-          const targetArray = args.scriptType === 'server' ? nextServer : nextClient;
-          const existingIndex = targetArray.indexOf(args.scriptId);
-          const willActivate = existingIndex === -1;
+          let nextServer: number[] = [];
+          let nextClient: number[] = [];
 
-          if (willActivate) {
-            targetArray.splice(0, targetArray.length, args.scriptId);
+          if (args.scriptType === 'server') {
+            const currentlyActive = active.server.length > 0 ? active.server[0] : null;
+            const willActivate = currentlyActive !== args.scriptId;
+            nextServer = willActivate ? [args.scriptId] : [];
           } else {
-            targetArray.splice(existingIndex, 1);
+            const currentlyActive = active.client.length > 0 ? active.client[0] : null;
+            const willActivate = currentlyActive !== args.scriptId;
+            nextClient = willActivate ? [args.scriptId] : [];
           }
 
           await scriptSynchronizer.setActiveScripts(siteId, nextServer, nextClient);
           await vscode.commands.executeCommand('owlanter.sitesRefresh');
           vscode.window.showInformationMessage(
-            'Script #' + args.scriptId + (willActivate ? ' activated.' : ' deactivated.')
+            'Script #' + args.scriptId + (args.scriptType === 'server'
+              ? (nextServer.length > 0 ? ' activated.' : ' deactivated.')
+              : (nextClient.length > 0 ? ' activated.' : ' deactivated.'))
           );
           return;
         }
@@ -608,13 +615,10 @@ function registerScriptManagementCommands(
           return;
         }
 
-        const currentServer = active.server.length > 0 ? [active.server[0]] : [];
-        const currentClient = active.client.length > 0 ? [active.client[0]] : [];
-
         if (selection.type === 'server') {
-          await scriptSynchronizer.setActiveScripts(site['site-id'], [selection.id], currentClient);
+          await scriptSynchronizer.setActiveScripts(site['site-id'], [selection.id], []);
         } else {
-          await scriptSynchronizer.setActiveScripts(site['site-id'], currentServer, [selection.id]);
+          await scriptSynchronizer.setActiveScripts(site['site-id'], [], [selection.id]);
         }
         vscode.window.showInformationMessage('Active script updated.');
         await vscode.commands.executeCommand('owlanter.sitesRefresh');
@@ -629,17 +633,10 @@ function registerScriptManagementCommands(
     vscode.commands.registerCommand('owlanter.scriptClear', async (payload?: ScriptNodeArgs | ScriptTreeItem) => {
       try {
         const args = normalizeScriptArgs(payload);
-        if (args && typeof args.siteId === 'number' && args.scriptType) {
-          const siteId = args.siteId;
-          const active = await scriptSynchronizer.getActiveScriptIds(siteId);
-          const nextServer = args.scriptType === 'server' ? [] : active.server.slice(0, 1);
-          const nextClient = args.scriptType === 'client' ? [] : active.client.slice(0, 1);
-
-          await scriptSynchronizer.setActiveScripts(siteId, nextServer, nextClient);
+        if (args && typeof args.siteId === 'number') {
+          await scriptSynchronizer.setActiveScripts(args.siteId, [], []);
           await vscode.commands.executeCommand('owlanter.sitesRefresh');
-          vscode.window.showInformationMessage(
-            args.scriptType === 'server' ? 'Active server scripts cleared.' : 'Active client scripts cleared.'
-          );
+          vscode.window.showInformationMessage('Active script cleared.');
           return;
         }
 
@@ -649,6 +646,24 @@ function registerScriptManagementCommands(
         vscode.window.showInformationMessage('All active scripts cleared.');
       } catch (error: any) {
         vscode.window.showErrorMessage('Failed to clear active scripts: ' + error.message);
+      }
+    })
+  );
+
+  // Open Script File
+  context.subscriptions.push(
+    vscode.commands.registerCommand('owlanter.openScriptFile', async (payload?: ScriptNodeArgs | ScriptTreeItem) => {
+      try {
+        const args = normalizeScriptArgs(payload);
+        if (!args?.filePath) {
+          vscode.window.showWarningMessage('ファイルパスを判定できませんでした。');
+          return;
+        }
+
+        const document = await vscode.workspace.openTextDocument(args.filePath);
+        await vscode.window.showTextDocument(document, { preview: false });
+      } catch (error: any) {
+        vscode.window.showErrorMessage('Failed to open script file: ' + error.message);
       }
     })
   );
