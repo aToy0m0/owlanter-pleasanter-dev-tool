@@ -1,4 +1,4 @@
-﻿import * as vscode from 'vscode';
+import * as vscode from 'vscode';
 import { SiteManager } from '../core/site-manager';
 import { ScriptSynchronizer } from '../core/script-sync';
 import { FileWatcher } from '../core/file-watcher';
@@ -658,6 +658,36 @@ function registerConfigCommands(
   context: vscode.ExtensionContext,
   siteManager: SiteManager
 ): void {
+  // Workspace Init
+  context.subscriptions.push(
+    vscode.commands.registerCommand('owlanter.initWorkspace', async () => {
+      try {
+        const result = await siteManager.initializeWorkspace();
+
+        const createdDirs = result.createdDirectories.length;
+        const createdFiles = result.createdFiles.length;
+
+        if (createdDirs === 0 && createdFiles === 0) {
+          vscode.window.showInformationMessage('Owlanter workspace is already initialized.');
+        } else {
+          const details: string[] = [];
+          if (createdDirs > 0) {
+            details.push(`ディレクトリ: ${result.createdDirectories.join(', ')}`);
+          }
+          if (createdFiles > 0) {
+            details.push(`ファイル: ${result.createdFiles.join(', ')}`);
+          }
+          const message = ['Owlanter workspace initialization completed.', ...details].join('\n');
+          vscode.window.showInformationMessage(message);
+        }
+
+        await vscode.commands.executeCommand('owlanter.sitesRefresh');
+      } catch (error: any) {
+        vscode.window.showErrorMessage(`Failed to initialize workspace: ${error.message}`);
+      }
+    })
+  );
+
   // Config Init
   context.subscriptions.push(
     vscode.commands.registerCommand('owlanter.configInit', async () => {

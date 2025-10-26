@@ -1,4 +1,4 @@
-﻿import * as vscode from 'vscode';
+import * as vscode from 'vscode';
 import * as path from 'path';
 import * as fs from 'fs/promises';
 import { SitesConfig, SiteInfo, Config, SiteInfoFile } from '../api/types';
@@ -8,6 +8,18 @@ const SITES_STATE_KEY = 'owlanter.sitesConfig';
 const CONFIG_DOMAIN_KEY = 'owlanter.domain';
 const CONFIG_SETTINGS_KEY = 'owlanter.configSettings';
 const CONFIG_API_SECRET_KEY = 'owlanter.apiKey';
+
+export class MissingWorkspaceDirectoryError extends Error {
+  constructor(
+    public readonly directory: string,
+    public readonly relativePath: string,
+    public readonly action: string
+  ) {
+    super(
+      `Required workspace folder is missing: ${relativePath || directory}. Please create it manually before ${action}.`
+    );
+  }
+}
 
 /**
  * Site Manager
@@ -30,6 +42,129 @@ export class SiteManager {
     this.sitesFile = path.join(this.configDir, 'site.json');
     this.configFile = path.join(this.configDir, 'config.json');
     this.siteFolderCache = new Map<number, string>();
+  }
+
+  private toWorkspaceRelative(target: string): string {
+    const relative = path.relative(this.workspaceRoot, target);
+    return relative.startsWith('..') ? target : relative || '.';
+  }
+
+  private async directoryExists(dir: string): Promise<boolean> {
+    try {
+      const stat = await fs.stat(dir);
+      return stat.isDirectory();
+    } catch (error: any) {
+      if (error.code === 'ENOENT') {
+        return false;
+      }
+      throw error;
+    }
+  }
+
+  private async ensureDirectoryForAction(dir: string, action: string): Promise<void> {
+    const exists = await this.directoryExists(dir);
+    if (!exists) {
+      throw new MissingWorkspaceDirectoryError(dir, this.toWorkspaceRelative(dir), action);
+    }
+  }
+
+  private async fileExists(filePath: string): Promise<boolean> {
+    try {
+      const stat = await fs.stat(filePath);
+      return stat.isFile();
+    } catch (error: any) {
+      if (error.code === 'ENOENT') {
+        return false;
+      }
+      throw error;
+    }
+  }
+
+  async ensureConfigStructure(action: string): Promise<void> {
+    await this.ensureDirectoryForAction(this.configDir, action);
+    await this.ensureDirectoryForAction(this.sitesRootDir, action);
+  }
+
+  async ensureSiteWorkspace(
+    siteId: number,
+    action: string,
+    options: { includeScriptDirs?: boolean } = {}
+  ): Promise<void> {
+    const includeScriptDirs = options.includeScriptDirs ?? true;
+    await this.ensureConfigStructure(action);
+
+    const config = await this.getSites();
+    const site = config.sites.find(s => s['site-id'] === siteId);
+    if (!site) {
+      throw new Error(`Site ID ${siteId} not found`);
+    }
+
+    const folderName = site['folder-name'] ?? this.createSiteFolderName(site['site-id'], site['site-name']);
+    const siteDir = path.join(this.sitesRootDir, folderName);
+    await this.ensureDirectoryForAction(siteDir, action);
+
+    if (includeScriptDirs) {
+      await this.ensureDirectoryForAction(path.join(siteDir, 'server-script'), action);
+      await this.ensureDirectoryForAction(path.join(siteDir, 'client-script'), action);
+    }
+  }
+
+  async initializeWorkspace(): Promise<{
+    createdDirectories: string[];
+    createdFiles: string[];
+  }> {
+    const createdDirectories: string[] = [];
+    const createdFiles: string[] = [];
+
+    const ensureDir = async (dir: string) => {
+      if (!(await this.directoryExists(dir))) {
+        await fs.mkdir(dir, { recursive: true });
+        createdDirectories.push(this.toWorkspaceRelative(dir));
+      }
+    };
+
+    await ensureDir(this.configDir);
+    await ensureDir(this.sitesRootDir);
+
+    let sitesConfig: SitesConfig;
+    try {
+      sitesConfig = await this.getSites();
+    } catch (error: any) {
+      throw new Error(`Failed to load site configuration: ${error.message ?? error}`);
+    }
+
+    const mutated = await this.ensureSiteFolderMetadata(sitesConfig);
+    if (mutated) {
+      await this.persistSites(sitesConfig);
+    } else {
+      this.updateSiteFolderCache(sitesConfig);
+    }
+
+    for (const site of sitesConfig.sites) {
+      const folderName = site['folder-name'] ?? this.createSiteFolderName(site['site-id'], site['site-name']);
+      const siteDir = path.join(this.sitesRootDir, folderName);
+      await ensureDir(siteDir);
+      await ensureDir(path.join(siteDir, 'server-script'));
+      await ensureDir(path.join(siteDir, 'client-script'));
+
+      const infoPath = this.getSiteInfoPath(site['site-id']);
+      const hasInfo = await this.fileExists(infoPath);
+      if (!hasInfo) {
+        const info = this.createDefaultSiteInfo(site);
+        await fs.writeFile(infoPath, JSON.stringify(info, null, 2), 'utf8');
+        createdFiles.push(this.toWorkspaceRelative(infoPath));
+      }
+    }
+
+    const hasConfigFile = await this.fileExists(this.configFile);
+    if (!hasConfigFile) {
+      const config = await this.initializeConfig(true);
+      if (config) {
+        createdFiles.push(this.toWorkspaceRelative(this.configFile));
+      }
+    }
+
+    return { createdDirectories, createdFiles };
   }
 
   /**
@@ -167,14 +302,40 @@ export class SiteManager {
 
     await this.saveSites(config);
 
-    // Create site directory structure
     const siteDir = this.getSiteDir(siteId);
-    await fs.mkdir(path.join(siteDir, 'server-script'), { recursive: true });
-    await fs.mkdir(path.join(siteDir, 'client-script'), { recursive: true });
+    const missingPaths: string[] = [];
+    const requiredPaths = [
+      siteDir,
+      path.join(siteDir, 'server-script'),
+      path.join(siteDir, 'client-script'),
+    ];
 
-    // Create initial site-info.json
-    const siteInfo = this.createDefaultSiteInfo(newSite);
-    await this.saveSiteInfo(siteId, siteInfo);
+    for (const candidate of requiredPaths) {
+      if (!(await this.directoryExists(candidate))) {
+        missingPaths.push(this.toWorkspaceRelative(candidate));
+      }
+    }
+
+    if (missingPaths.length === 0) {
+      try {
+        const siteInfo = this.createDefaultSiteInfo(newSite);
+        await this.saveSiteInfo(siteId, siteInfo);
+      } catch (error) {
+        if (error instanceof MissingWorkspaceDirectoryError) {
+          vscode.window.showWarningMessage(error.message);
+        } else {
+          throw error;
+        }
+      }
+    } else {
+      vscode.window.showWarningMessage(
+        [
+          `Site added: ${siteName} (ID: ${siteId}).`,
+          'Create the following folders manually before running pull/push:',
+          ...missingPaths.map(item => `- ${item}`),
+        ].join('\n')
+      );
+    }
 
     vscode.window.showInformationMessage(`Site added: ${siteName} (ID: ${siteId})`);
   }
@@ -402,7 +563,7 @@ export class SiteManager {
     }
 
     const normalized = this.normalizeSiteInfo(site, info);
-    await fs.mkdir(this.getSiteDir(siteId), { recursive: true });
+    await this.ensureDirectoryForAction(this.getSiteDir(siteId), 'saving site-info.json');
     await fs.writeFile(this.getSiteInfoPath(siteId), JSON.stringify(normalized, null, 2), 'utf8');
   }
 
@@ -444,15 +605,22 @@ export class SiteManager {
   }
 
   private async writeSitesFile(config: SitesConfig): Promise<void> {
-    await fs.mkdir(this.configDir, { recursive: true });
-    await fs.mkdir(this.sitesRootDir, { recursive: true });
+    await this.ensureConfigStructure('saving site.json');
     await fs.writeFile(this.sitesFile, JSON.stringify(config, null, 2), 'utf8');
     this.updateSiteFolderCache(config);
   }
 
   private async persistSites(config: SitesConfig): Promise<void> {
     await this.context.workspaceState.update(SITES_STATE_KEY, config);
-    await this.writeSitesFile(config);
+    try {
+      await this.writeSitesFile(config);
+    } catch (error) {
+      if (error instanceof MissingWorkspaceDirectoryError) {
+        vscode.window.showWarningMessage(error.message);
+      } else {
+        throw error;
+      }
+    }
   }
 
   private async persistConfig(config: Config): Promise<void> {
@@ -474,10 +642,18 @@ export class SiteManager {
     }
     await this.context.workspaceState.update(CONFIG_SETTINGS_KEY, normalized.settings);
 
-    await fs.mkdir(this.configDir, { recursive: true });
     const serialized = JSON.stringify(normalized, null, 2);
     const output = `${CONFIG_COMMENT}\n${serialized}\n`;
-    await fs.writeFile(this.configFile, output, 'utf8');
+    try {
+      await this.ensureDirectoryForAction(this.configDir, 'saving config.json');
+      await fs.writeFile(this.configFile, output, 'utf8');
+    } catch (error) {
+      if (error instanceof MissingWorkspaceDirectoryError) {
+        vscode.window.showWarningMessage(error.message);
+      } else {
+        throw error;
+      }
+    }
   }
 
   private createSiteFolderName(siteId: number, siteName: string): string {
@@ -518,8 +694,11 @@ export class SiteManager {
       // Target does not exist, proceed with rename.
     }
 
+    if (!(await this.directoryExists(this.sitesRootDir))) {
+      return false;
+    }
+
     try {
-      await fs.mkdir(this.sitesRootDir, { recursive: true });
       await fs.rename(oldPath, newPath);
       return true;
     } catch (error) {

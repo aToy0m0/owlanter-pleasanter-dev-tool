@@ -2,7 +2,7 @@ import * as fs from 'fs/promises';
 import { Dirent } from 'fs';
 import * as path from 'path';
 import * as vscode from 'vscode';
-import { SiteManager } from './site-manager';
+import { SiteManager, MissingWorkspaceDirectoryError } from './site-manager';
 import { MetadataParser } from './metadata-parser';
 import { Script, ServerScript, SiteData } from '../api/types';
 import { createApiClient } from '../utils/connection';
@@ -39,13 +39,34 @@ interface DiffEntry {
 export class ScriptSynchronizer {
   constructor(private readonly siteManager: SiteManager) {}
 
+  private async guardSiteWorkspace(
+    siteId: number,
+    action: string,
+    options: { includeScriptDirs?: boolean } = {}
+  ): Promise<boolean> {
+    try {
+      await this.siteManager.ensureSiteWorkspace(siteId, action, options);
+      return true;
+    } catch (error) {
+      if (error instanceof MissingWorkspaceDirectoryError) {
+        vscode.window.showErrorMessage(error.message);
+        return false;
+      }
+      throw error;
+    }
+  }
+
   async pull(siteId?: number): Promise<void> {
     const site = await this.requireSite(siteId);
     const apiClient = await createApiClient(this.siteManager);
     const siteData = await apiClient.getSiteSettings(site['site-id']);
 
+    const workspaceReady = await this.guardSiteWorkspace(site['site-id'], 'pull site data');
+    if (!workspaceReady) {
+      return;
+    }
+
     const siteDir = this.siteManager.getSiteDir(site['site-id']);
-    await fs.mkdir(siteDir, { recursive: true });
 
     await fs.writeFile(
       path.join(siteDir, 'site-setting.json'),
@@ -82,7 +103,16 @@ export class ScriptSynchronizer {
   async push(options: PushOptions = {}): Promise<void> {
     const site = await this.requireSite(options.siteId);
     if (options.dryRun) {
+      const canDiff = await this.guardSiteWorkspace(site['site-id'], 'diff scripts');
+      if (!canDiff) {
+        return;
+      }
       await this.diff(site['site-id']);
+      return;
+    }
+
+    const workspaceReady = await this.guardSiteWorkspace(site['site-id'], 'push scripts');
+    if (!workspaceReady) {
       return;
     }
 
@@ -129,6 +159,11 @@ export class ScriptSynchronizer {
 
   async pushFile(siteId: number, filePath: string, options: { silent?: boolean } = {}): Promise<void> {
     const site = await this.requireSite(siteId);
+    const workspaceReady = await this.guardSiteWorkspace(site['site-id'], 'upload script changes');
+    if (!workspaceReady) {
+      return;
+    }
+
     const normalized = path.normalize(filePath);
     const serverDir = path.normalize(this.siteManager.getServerScriptDir(site['site-id']));
     const clientDir = path.normalize(this.siteManager.getClientScriptDir(site['site-id']));
@@ -163,6 +198,11 @@ export class ScriptSynchronizer {
 
   async diff(siteId?: number): Promise<void> {
     const site = await this.requireSite(siteId);
+    const workspaceReady = await this.guardSiteWorkspace(site['site-id'], 'diff scripts');
+    if (!workspaceReady) {
+      return;
+    }
+
     const apiClient = await createApiClient(this.siteManager);
     const siteData = await apiClient.getSiteSettings(site['site-id']);
 
@@ -197,6 +237,11 @@ export class ScriptSynchronizer {
 
   async upload(paths: string[], type?: 'server' | 'client', siteId?: number): Promise<void> {
     const site = await this.requireSite(siteId);
+    const workspaceReady = await this.guardSiteWorkspace(site['site-id'], 'upload scripts');
+    if (!workspaceReady) {
+      return;
+    }
+
     if (paths.length === 0) {
       return;
     }
@@ -365,13 +410,12 @@ export class ScriptSynchronizer {
   }
 
   private async writeServerScripts(directory: string, scripts: ServerScript[]): Promise<string[]> {
-    await fs.mkdir(directory, { recursive: true });
     const written: string[] = [];
 
     for (const script of scripts) {
       const fileName = `${script.Id ?? 'new'}_${sanitizeFileName(script.Title ?? script.Name ?? 'server-script')}.js`;
       const target = path.join(directory, fileName);
-      await MetadataParser.writeServerScriptFile(target, script);
+      await fs.writeFile(target, script.Body ?? '', 'utf8');
       written.push(target);
     }
 
@@ -379,13 +423,12 @@ export class ScriptSynchronizer {
   }
 
   private async writeClientScripts(directory: string, scripts: Script[]): Promise<string[]> {
-    await fs.mkdir(directory, { recursive: true });
     const written: string[] = [];
 
     for (const script of scripts) {
       const fileName = `${script.Id ?? 'new'}_${sanitizeFileName(script.Title ?? 'client-script')}.js`;
       const target = path.join(directory, fileName);
-      await MetadataParser.writeScriptFile(target, script);
+      await fs.writeFile(target, script.Body ?? '', 'utf8');
       written.push(target);
     }
 
