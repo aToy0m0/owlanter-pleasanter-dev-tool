@@ -32,7 +32,6 @@
     "onCommand:owlanter.configShow",
     "onCommand:owlanter.configSet",
     "onCommand:owlanter.configSync",
-    "onCommand:owlanter.initWorkspace",
     "onCommand:owlanter.configInit",
     "onCommand:owlanter.openSettings"
   ],
@@ -50,107 +49,107 @@
     "commands": [
       {
         "command": "owlanter.sitesRefresh",
-        "title": "Owlanter: 繧ｵ繧､繝井ｸ隕ｧ譖ｴ譁ｰ",
+        "title": "Owlanter: サイト一覧更新",
         "icon": "$(refresh)"
       },
       {
         "command": "owlanter.siteList",
-        "title": "Owlanter: 繧ｵ繧､繝井ｸ隕ｧ陦ｨ遉ｺ",
+        "title": "Owlanter: サイト一覧表示",
         "icon": "$(list-unordered)"
       },
       {
         "command": "owlanter.siteSelect",
-        "title": "Owlanter: 繧ｵ繧､繝磯∈謚・,
+        "title": "Owlanter: サイト選択",
         "icon": "$(selection)"
       },
       {
         "command": "owlanter.siteCurrent",
-        "title": "Owlanter: 迴ｾ蝨ｨ縺ｮ繧ｵ繧､繝域ュ蝣ｱ陦ｨ遉ｺ",
+        "title": "Owlanter: 現在のサイト情報表示",
         "icon": "$(info)"
       },
       {
         "command": "owlanter.siteAdd",
-        "title": "Owlanter: 繧ｵ繧､繝郁ｿｽ蜉",
+        "title": "Owlanter: サイト追加",
         "icon": "$(add)"
       },
       {
         "command": "owlanter.pull",
-        "title": "Owlanter: 繧ｹ繧ｯ繝ｪ繝励ヨ蜿門ｾ・(Pull)",
+        "title": "Owlanter: スクリプト取得 (Pull)",
         "icon": "$(cloud-download)"
       },
       {
         "command": "owlanter.push",
-        "title": "Owlanter: 繧ｹ繧ｯ繝ｪ繝励ヨ驕ｩ逕ｨ (Push)",
+        "title": "Owlanter: スクリプト適用 (Push)",
         "icon": "$(cloud-upload)"
       },
       {
         "command": "owlanter.watch",
-        "title": "Owlanter: 閾ｪ蜍募酔譛・(Watch)",
+        "title": "Owlanter: 自動同期 (Watch)",
         "icon": "$(eye)"
       },
       {
         "command": "owlanter.diff",
-        "title": "Owlanter: 蟾ｮ蛻・｡ｨ遉ｺ",
+        "title": "Owlanter: 差分表示",
         "icon": "$(diff)"
       },
       {
         "command": "owlanter.upload",
-        "title": "Owlanter: 繧ｹ繧ｯ繝ｪ繝励ヨ繧｢繝・・繝ｭ繝ｼ繝・,
+        "title": "Owlanter: スクリプトアップロード",
         "icon": "$(upload)"
       },
       {
         "command": "owlanter.uploadServer",
-        "title": "Owlanter: 繧ｵ繝ｼ繝舌・繧ｹ繧ｯ繝ｪ繝励ヨ繧｢繝・・繝ｭ繝ｼ繝・,
+        "title": "Owlanter: サーバースクリプトアップロード",
         "icon": "$(server)"
       },
       {
         "command": "owlanter.uploadClient",
-        "title": "Owlanter: 繧ｯ繝ｩ繧､繧｢繝ｳ繝医せ繧ｯ繝ｪ繝励ヨ繧｢繝・・繝ｭ繝ｼ繝・,
+        "title": "Owlanter: クライアントスクリプトアップロード",
         "icon": "$(browser)"
       },
       {
         "command": "owlanter.uploadFile",
-        "title": "Owlanter: 繝輔ぃ繧､繝ｫ繧｢繝・・繝ｭ繝ｼ繝・,
+        "title": "Owlanter: ファイルアップロード",
         "icon": "$(file-code)"
       },
       {
         "command": "owlanter.scriptShow",
-        "title": "Owlanter: 繧｢繧ｯ繝・ぅ繝悶せ繧ｯ繝ｪ繝励ヨ陦ｨ遉ｺ"
+        "title": "Owlanter: アクティブスクリプト表示"
       },
       {
         "command": "owlanter.scriptSet",
-        "title": "Owlanter: 繧｢繧ｯ繝・ぅ繝悶せ繧ｯ繝ｪ繝励ヨ險ｭ螳・
+        "title": "Owlanter: アクティブスクリプト設定"
       },
       {
         "command": "owlanter.scriptClear",
-        "title": "Owlanter: 繧｢繧ｯ繝・ぅ繝悶せ繧ｯ繝ｪ繝励ヨ隗｣髯､"
+        "title": "Owlanter: アクティブスクリプト解除"
       },
       {
         "command": "owlanter.initWorkspace",
-        "title": "Owlanter: 繝ｯ繝ｼ繧ｯ繧ｹ繝壹・繧ｹ蛻晄悄蛹・,
+        "title": "Owlanter: ワークスペース初期化",
         "icon": "$(debug-start)"
       },
       {
         "command": "owlanter.configShow",
-        "title": "Owlanter: 迴ｾ蝨ｨ縺ｮ謗･邯夊ｨｭ螳夊｡ｨ遉ｺ"
+        "title": "Owlanter: 現在の接続設定表示"
       },
       {
         "command": "owlanter.configSet",
-        "title": "Owlanter: 謗･邯夊ｨｭ螳壽峩譁ｰ"
+        "title": "Owlanter: 接続設定更新"
       },
       {
         "command": "owlanter.configSync",
-        "title": "Owlanter: 險ｭ螳壼酔譛・,
+        "title": "Owlanter: 設定同期",
         "icon": "$(sync)"
       },
       {
         "command": "owlanter.configInit",
-        "title": "Owlanter: 謗･邯夊ｨｭ螳壼・譛溷喧",
+        "title": "Owlanter: 接続設定初期化",
         "icon": "$(plug)"
       },
       {
         "command": "owlanter.openSettings",
-        "title": "Owlanter: 險ｭ螳壹ｒ髢九￥",
+        "title": "Owlanter: 設定を開く",
         "icon": "$(gear)"
       }
     ],
@@ -160,19 +159,19 @@
         "owlanter.domain": {
           "type": "string",
           "default": "",
-          "scope": "application",
-          "markdownDescription": "Owlanter 縺梧磁邯壹☆繧・Owlanter 繧ｵ繝ｼ繝舌・縺ｮ繝吶・繧ｹ URL・井ｾ・ https://example.com/・噂n\n[謗･邯夊ｨｭ螳壹ｒ蛻晄悄蛹望(command:owlanter.configInit)"
+          "description": "Owlanter が接続する Owlanter サーバーのベース URL（例: https://example.com/）",
+          "scope": "application"
         },
         "owlanter.apiKey": {
           "type": "string",
           "default": "",
-          "markdownDescription": "Owlanter 縺悟茜逕ｨ縺吶ｋ API 繧ｭ繝ｼ縲７S Code 縺ｮ繝ｦ繝ｼ繧ｶ繝ｼ險ｭ螳壹↓菫晏ｭ倥＆繧後∪縺吶・,
+          "markdownDescription": "Owlanter が利用する Owlanter API キー。VS Code のユーザー設定に保存されます。",
           "scope": "application"
         },
         "owlanter.autoSave": {
           "type": "boolean",
-          "default": true,
-          "description": "繝輔ぃ繧､繝ｫ菫晏ｭ俶凾縺ｫ閾ｪ蜍慕噪縺ｫ Owlanter 縺ｸ繧｢繝・・繝ｭ繝ｼ繝・
+          "default": false,
+          "description": "ファイル保存時に自動的に Owlanter へアップロード"
         },
         "owlanter.logLevel": {
           "type": "string",
@@ -183,7 +182,7 @@
             "error"
           ],
           "default": "info",
-          "description": "Owlanter 縺悟・蜉帙☆繧九Ο繧ｰ繝ｬ繝吶Ν"
+          "description": "Owlanter が出力するログレベル"
         }
       }
     },
@@ -198,7 +197,7 @@
     "viewsWelcome": [
       {
         "view": "owlanterSites",
-        "contents": "繧ｵ繧､繝医′逋ｻ骭ｲ縺輔ｌ縺ｦ縺・∪縺帙ｓ縲・n[繧ｵ繧､繝医ｒ霑ｽ蜉](command:owlanter.siteAdd)"
+        "contents": "サイトが登録されていません。\n[サイトを追加](command:owlanter.siteAdd)"
       }
     ],
     "menus": {
@@ -236,6 +235,10 @@
           "when": "false"
         },
         {
+          "command": "owlanter.uploadServer",
+          "when": "false"
+        },
+        {
           "command": "owlanter.uploadClient",
           "when": "false"
         },
@@ -258,7 +261,7 @@
       ],
       "view/title": [
         {
-          "command": "owlanter.initWorkspace",
+          "command": "owlanter.configInit",
           "when": "view == owlanterSites",
           "group": "navigation@0"
         },
@@ -358,6 +361,11 @@
           "command": "owlanter.upload",
           "when": "view == owlanterSites && viewItem == owlanterScript.client",
           "group": "2_upload@0"
+        },
+        {
+          "command": "owlanter.uploadServer",
+          "when": "view == owlanterSites && viewItem == owlanterScript.server",
+          "group": "2_upload@1"
         },
         {
           "command": "owlanter.uploadClient",
